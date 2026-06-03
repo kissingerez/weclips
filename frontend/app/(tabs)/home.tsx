@@ -5,7 +5,7 @@ import { useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { VideoCard, VideoCardData } from "@/src/components/VideoCard";
 import { api } from "@/src/lib/api";
-import { colors, spacing, text } from "@/src/theme";
+import { colors, spacing, text, brandFont } from "@/src/theme";
 
 export default function Home() {
   const [videos, setVideos] = useState<VideoCardData[]>([]);
@@ -95,7 +95,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.divider,
   },
-  brand: { color: colors.brand, fontSize: 26, fontWeight: "900", letterSpacing: 0.5 },
+  brand: { ...brandFont, color: colors.brand, fontSize: 28, fontWeight: "900", letterSpacing: -0.5 },
   badge: {
     color: colors.onSurfaceSecondary,
     fontSize: 10,

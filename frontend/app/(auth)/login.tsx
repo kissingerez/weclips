@@ -12,7 +12,7 @@ import {
 import { Link, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "@/src/lib/auth";
-import { colors, spacing, radius, text } from "@/src/theme";
+import { colors, spacing, radius, text, brandFont } from "@/src/theme";
 
 export default function Login() {
   const { login } = useAuth();
@@ -97,10 +97,11 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.surface },
   scroll: { padding: spacing.xl, justifyContent: "center", flexGrow: 1 },
   brand: {
+    ...brandFont,
     color: colors.brand,
-    fontSize: 40,
+    fontSize: 42,
     fontWeight: "900",
-    letterSpacing: 1,
+    letterSpacing: -1,
     marginBottom: spacing.xs,
   },
   tagline: { color: colors.onSurfaceSecondary, fontSize: text.base, marginBottom: spacing.xxl },

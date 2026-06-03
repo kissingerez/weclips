@@ -5,11 +5,11 @@ export const colors = {
   onSurfaceSecondary: "#B3B3B3",
   surfaceTertiary: "#262626",
   onSurfaceTertiary: "#8C8C8C",
-  // Brand: turquoise
-  brand: "#14B8A6",
-  onBrand: "#FFFFFF",
-  brandTertiary: "#0F4D47",
-  onBrandTertiary: "#CCFBF1",
+  // Brand: baby blue
+  brand: "#89CFF0",
+  onBrand: "#0A1929", // dark navy for readable text on baby-blue surfaces
+  brandTertiary: "#1F4256",
+  onBrandTertiary: "#CFE9F7",
   border: "#333333",
   borderStrong: "#4D4D4D",
   divider: "#1A1A1A",
@@ -44,4 +44,16 @@ export const text = {
   lg: 16,
   xl: 20,
   xxl: 24,
+};
+
+// Brand wordmark font — distinct from the system UI font
+import { Platform } from "react-native";
+
+export const brandFont = {
+  fontFamily: Platform.select({
+    ios: "Avenir-Black",
+    android: "sans-serif-condensed",
+    default: "serif",
+  }),
+  fontStyle: "italic" as const,
 };
