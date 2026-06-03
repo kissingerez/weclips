@@ -1,14 +1,32 @@
-import { Stack } from "expo-router";
+import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
+import { StatusBar } from "expo-status-bar";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
+import { AuthProvider, useAuth } from "@/src/lib/auth";
+import { useRevenueCatConfig } from "@/src/lib/useRevenueCat";
 
-// Keep the native splash visible from cold start until icon fonts register.
-// Required because @expo/vector-icons' componentDidMount fallback fires
-// Font.loadAsync against a broken vendor path if any <Icon> mounts before
-// the family is registered — which throws on Android Expo Go.
 SplashScreen.preventAutoHideAsync();
+
+function AuthGate() {
+  const { user, loading } = useAuth();
+  const segments = useSegments();
+  const router = useRouter();
+  useRevenueCatConfig();
+
+  useEffect(() => {
+    if (loading) return;
+    const inAuth = segments[0] === "(auth)";
+    if (!user && !inAuth) {
+      router.replace("/(auth)/login");
+    } else if (user && inAuth) {
+      router.replace("/(tabs)/home");
+    }
+  }, [user, loading, segments, router]);
+
+  return null;
+}
 
 export default function RootLayout() {
   const [loaded, error] = useIconFonts();
@@ -19,9 +37,18 @@ export default function RootLayout() {
     }
   }, [loaded, error]);
 
-  // If the CDN is unreachable we fall through on error rather than wedging
-  // the app — icons will tofu, but the app still boots.
   if (!loaded && !error) return null;
 
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return (
+    <AuthProvider>
+      <StatusBar style="light" />
+      <AuthGate />
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#0D0D0D" } }}>
+        <Stack.Screen name="(auth)" />
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="video/[id]" options={{ presentation: "card" }} />
+        <Stack.Screen name="paywall" options={{ presentation: "modal" }} />
+      </Stack>
+    </AuthProvider>
+  );
 }

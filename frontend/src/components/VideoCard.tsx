@@ -1,0 +1,57 @@
+import React from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Image } from "expo-image";
+import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { API_BASE } from "@/src/lib/api";
+import { colors, radius, spacing, text } from "@/src/theme";
+
+export type VideoCardData = {
+  id: string;
+  title: string;
+  creator_name: string;
+  views: number;
+  has_thumbnail: boolean;
+  created_at: string;
+};
+
+export const VideoCard: React.FC<{ video: VideoCardData }> = ({ video }) => {
+  const router = useRouter();
+  const thumb = video.has_thumbnail ? `${API_BASE}/videos/${video.id}/thumbnail` : null;
+
+  return (
+    <Pressable
+      testID={`video-card-${video.id}`}
+      onPress={() => router.push(`/video/${video.id}`)}
+      style={({ pressed }) => [styles.card, pressed && { opacity: 0.85 }]}
+    >
+      <View style={styles.thumb}>
+        {thumb ? (
+          <Image source={{ uri: thumb }} style={styles.image} contentFit="cover" transition={150} />
+        ) : (
+          <View style={[styles.image, styles.placeholder]}>
+            <Ionicons name="play-circle" size={56} color={colors.brand} />
+          </View>
+        )}
+      </View>
+      <View style={styles.meta}>
+        <Text style={styles.title} numberOfLines={2}>
+          {video.title}
+        </Text>
+        <Text style={styles.sub}>
+          {video.creator_name} · {video.views} {video.views === 1 ? "view" : "views"}
+        </Text>
+      </View>
+    </Pressable>
+  );
+};
+
+const styles = StyleSheet.create({
+  card: { marginBottom: spacing.xl },
+  thumb: { width: "100%", aspectRatio: 16 / 9, backgroundColor: colors.surfaceSecondary },
+  image: { width: "100%", height: "100%" },
+  placeholder: { alignItems: "center", justifyContent: "center" },
+  meta: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },
+  title: { color: colors.onSurface, fontSize: text.lg, fontWeight: "700", marginBottom: spacing.xs },
+  sub: { color: colors.onSurfaceSecondary, fontSize: text.sm },
+});
