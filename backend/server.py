@@ -365,7 +365,7 @@ async def revenuecat_webhook(
 @api.post("/videos", response_model=VideoPublic)
 async def upload_video(body: VideoUploadReq, user: dict = Depends(get_current_user)):
     if not body.no_ai_confirmed:
-        raise HTTPException(status_code=400, detail="You must confirm the No-AI policy")
+        raise HTTPException(status_code=400, detail="You must confirm the WeClips content policy")
     if not user.get("is_subscribed", False):
         raise HTTPException(status_code=402, detail="Active subscription required to upload")
 

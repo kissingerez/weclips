@@ -167,14 +167,19 @@ export default function Upload() {
             maxLength={2000}
           />
 
-          <Pressable testID="upload-no-ai-checkbox" style={styles.checkRow} onPress={() => setNoAi(!noAi)}>
+          <Pressable testID="upload-policy-checkbox" style={styles.checkRow} onPress={() => setNoAi(!noAi)}>
             <View style={[styles.checkbox, noAi && styles.checkboxOn]}>
               {noAi && <Ionicons name="checkmark" size={16} color={colors.onBrand} />}
             </View>
-            <Text style={styles.checkLabel}>
-              I confirm this video is <Text style={styles.bold}>NOT AI-generated</Text>. WeClips bans synthetic
-              content.
-            </Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.policyTitle}>I confirm this video follows the WeClips policy:</Text>
+              <Text style={styles.policyRule}>• Not AI-generated</Text>
+              <Text style={styles.policyRule}>• Only one music/audio track at a time (no two songs overlapping)</Text>
+              <Text style={styles.policyRule}>• No excessive sound effects</Text>
+              <Text style={styles.policyHint}>
+                We ban overstimulating content so videos stay watchable and comprehensible.
+              </Text>
+            </View>
           </Pressable>
 
           {err ? <Text style={styles.error} testID="upload-error">{err}</Text> : null}
@@ -253,6 +258,9 @@ const styles = StyleSheet.create({
   },
   checkboxOn: { backgroundColor: colors.brand, borderColor: colors.brand },
   checkLabel: { color: colors.onSurfaceSecondary, flex: 1, fontSize: text.base, lineHeight: 20 },
+  policyTitle: { color: colors.onSurface, fontSize: text.base, fontWeight: "700", marginBottom: spacing.xs },
+  policyRule: { color: colors.onSurfaceSecondary, fontSize: text.base, lineHeight: 20 },
+  policyHint: { color: colors.onSurfaceTertiary, fontSize: text.sm, marginTop: spacing.xs, fontStyle: "italic" },
   bold: { color: colors.onSurface, fontWeight: "800" },
   submit: {
     backgroundColor: colors.brand,

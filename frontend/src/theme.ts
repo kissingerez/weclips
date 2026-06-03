@@ -1,24 +1,25 @@
 export const colors = {
-  surface: "#0D0D0D",
-  onSurface: "#F2F2F2",
-  surfaceSecondary: "#1A1A1A",
-  onSurfaceSecondary: "#B3B3B3",
-  surfaceTertiary: "#262626",
-  onSurfaceTertiary: "#8C8C8C",
-  // Brand: baby blue
+  // Light theme
+  surface: "#FFFFFF",
+  onSurface: "#0F172A",
+  surfaceSecondary: "#F1F5F9",
+  onSurfaceSecondary: "#475569",
+  surfaceTertiary: "#E2E8F0",
+  onSurfaceTertiary: "#64748B",
+  // Brand: baby blue (kept)
   brand: "#89CFF0",
-  onBrand: "#0A1929", // dark navy for readable text on baby-blue surfaces
-  brandTertiary: "#1F4256",
-  onBrandTertiary: "#CFE9F7",
-  border: "#333333",
-  borderStrong: "#4D4D4D",
-  divider: "#1A1A1A",
-  success: "#2A9D8F",
-  warning: "#E9C46A",
-  // Errors stay red regardless of brand color
-  error: "#E63946",
-  errorBg: "#4D1317",
-  onError: "#FFD9DB",
+  onBrand: "#0A1929",
+  brandTertiary: "#DCEEFB",
+  onBrandTertiary: "#0B5C8C",
+  border: "#E2E8F0",
+  borderStrong: "#CBD5E1",
+  divider: "#F1F5F9",
+  success: "#0E9F6E",
+  warning: "#D97706",
+  // Errors
+  error: "#DC2626",
+  errorBg: "#FEE2E2",
+  onError: "#7F1D1D",
 };
 
 export const spacing = {
@@ -46,7 +47,7 @@ export const text = {
   xxl: 24,
 };
 
-// Brand wordmark font — distinct from the system UI font
+// Brand wordmark font — Comic Sans family
 import { Platform } from "react-native";
 
 export const brandFont = {

@@ -43,7 +43,7 @@ export default function Login() {
       >
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
           <Text style={styles.brand} testID="brand-logo">WeClips</Text>
-          <Text style={styles.tagline}>Ad-free video, $1/month. No AI. Ever.</Text>
+          <Text style={styles.tagline}>Ad-free video, $1/month. No AI. No audio chaos.</Text>
 
           <View style={styles.form}>
             <Text style={styles.h1}>Sign in</Text>

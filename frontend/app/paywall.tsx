@@ -145,7 +145,7 @@ export default function Paywall() {
     <View style={styles.root}>
       <Image source={{ uri: PAYWALL_IMG }} style={styles.bg} contentFit="cover" />
       <LinearGradient
-        colors={["rgba(13,13,13,0.6)", "rgba(13,13,13,0.95)", "#0D0D0D"]}
+        colors={["rgba(255,255,255,0.4)", "rgba(255,255,255,0.92)", "#FFFFFF"]}
         locations={[0, 0.55, 1]}
         style={StyleSheet.absoluteFillObject}
       />
@@ -167,6 +167,8 @@ export default function Paywall() {
           <View style={styles.bullets}>
             <Bullet text="Zero ads, ever." />
             <Bullet text="100% human-made content (AI banned)." />
+            <Bullet text="One audio track per video — no overlapping music." />
+            <Bullet text="No sound-effect overload. Watchable, comprehensible." />
             <Bullet text="Upload your own videos." />
             <Bullet text="Billed by Apple / Google. Cancel anytime." />
           </View>
