@@ -51,8 +51,8 @@ import { Platform } from "react-native";
 
 export const brandFont = {
   fontFamily: Platform.select({
-    ios: "Avenir-Black",
-    android: "sans-serif-condensed",
-    default: "serif",
+    ios: "Chalkboard SE",
+    android: "casual",
+    default: '"Comic Sans MS", "Comic Sans", "Chalkboard SE", cursive',
   }),
 };
