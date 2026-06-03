@@ -1,0 +1,163 @@
+{
+  "app_name": "Slate",
+  "personality": "7 Dark-First Utility",
+  "personality_one_liner": "A fast, uncompromised, content-first cinematic experience that uses dark utility layouts to frame videos as the ultimate hero.",
+  "color": {
+    "surface": "#0D0D0D",
+    "onSurface": "#F2F2F2",
+    "surfaceSecondary": "#1A1A1A",
+    "onSurfaceSecondary": "#B3B3B3",
+    "surfaceTertiary": "#262626",
+    "onSurfaceTertiary": "#8C8C8C",
+    "surfaceInverse": "#F2F2F2",
+    "onSurfaceInverse": "#0D0D0D",
+    "brand": "#E63946",
+    "brandPrimary": "#E63946",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#2A2A2A",
+    "onBrandSecondary": "#F2F2F2",
+    "brandTertiary": "#4D1317",
+    "onBrandTertiary": "#FFD9DB",
+    "success": "#2A9D8F",
+    "onSuccess": "#FFFFFF",
+    "warning": "#E9C46A",
+    "onWarning": "#000000",
+    "error": "#E63946",
+    "onError": "#FFFFFF",
+    "info": "#8D99AE",
+    "onInfo": "#000000",
+    "border": "#333333",
+    "borderStrong": "#4D4D4D",
+    "divider": "#1A1A1A"
+  },
+  "typography": {
+    "displayFontFamily": "Barlow Condensed",
+    "textFontFamily": "Satoshi",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Handle spacing correctly dont have extra spaces where its not required, handle padding and margin corectly and subtle for buttons and components",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 4,
+    "md": 8,
+    "lg": 12,
+    "pill": 999
+  },
+  "shadow_tier": "0",
+  "navigation": "bottom_tabs",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": "false",
+    "do's": [
+      "Use subtle glass if absolutely needed for floating playback controls over active video, but lean solid/gradient for maximum contrast."
+    ],
+    "dont's": [
+      "No glass on headers, bottom tabs, or cards. Keep it brutal, dark, and performant."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Home Feed",
+      "purpose": "A vertical scroll of highly engaging video content.",
+      "states": {
+        "loading": "Dark skeletal loading blocks imitating video aspect ratios.",
+        "empty": "Subtle empty state illustration with 'No videos yet' and a CTA to pull-to-refresh.",
+        "error": "Error message with a prominent Retry button in brandPrimary."
+      },
+      "layout": "Edge-to-edge video thumbnails with title, channel name, and views underneath. Use a row-based layout (single column, full width). Do not use cards or side-padding on the thumbnail; the video should span 100% of the screen width for maximum impact. Divider lines between items."
+    },
+    {
+      "name": "Video Player",
+      "purpose": "Full-screen or inline playback experience.",
+      "states": {
+        "loading": "Center spinner over a darkened thumbnail.",
+        "empty": "N/A",
+        "error": "Video failed to load error message in the center of the player."
+      },
+      "layout": "Follow Mobbin gestures: Tap for controls, double tap for seek, drag for timeline scrubbing. Floating UI controls layered over the video player with a top-to-bottom transparent-to-black gradient scrim guaranteeing readability for controls."
+    },
+    {
+      "name": "Upload",
+      "purpose": "A strict, simple form to upload videos and agree to the No-AI policy.",
+      "states": {
+        "loading": "Uploading progress bar (in brandPrimary) at the bottom or overlay.",
+        "empty": "Empty drop zone with a large 'Select Video' button.",
+        "error": "Upload failed toast."
+      },
+      "layout": "Single column form. A large tap target to select from gallery. Explicit 'I confirm this is not AI generated' checkbox. Fixed Submit CTA pinned to the bottom above the keyboard using KeyboardAvoidingView."
+    },
+    {
+      "name": "Paywall",
+      "purpose": "Gate access to the app until the $1/mo subscription is paid.",
+      "states": {
+        "loading": "Processing payment spinner inside the CTA.",
+        "empty": "N/A",
+        "error": "Payment failed state highlighting the Stripe error."
+      },
+      "layout": "Cinematic full-bleed background image with a heavy dark gradient scrim over it. The $1/month value proposition is centered in large Barlow Condensed type. A large brandPrimary button anchored at the bottom thumb zone to initiate payment."
+    },
+    {
+      "name": "Profile",
+      "purpose": "Showcase user's own videos and subscriptions.",
+      "states": {
+        "loading": "Skeleton loaders for stats and video grid.",
+        "empty": "Empty state illustration indicating user hasn't uploaded any videos yet.",
+        "error": "Generic retry state."
+      },
+      "layout": "Top section with user avatar (real image or initial), subscriber count. Bottom section is a 2-column or 3-column grid of video thumbnails the user has uploaded, separated by tight margins."
+    }
+  ],
+  "images": {
+    "thumbnail_landscape": {
+      "url": "https://images.unsplash.com/photo-1598512946582-8aa2bca6abc0?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NjZ8MHwxfHNlYXJjaHwzfHxjaW5lbWF0aWMlMjBsYW5kc2NhcGUlMjB2aWRlbyUyMHRodW1ibmFpbHxlbnwwfHx8fDE3ODA1MjE4NDl8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "Aerial view of green mountains forming a cinematic landscape thumbnail."
+    },
+    "thumbnail_vlog": {
+      "url": "https://images.pexels.com/photos/12674093/pexels-photo-12674093.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "A creator filming a cooking tutorial in a modern setting."
+    },
+    "paywall_background": {
+      "url": "https://images.pexels.com/photos/22863010/pexels-photo-22863010.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Dark moody interior of an empty theater to symbolize premium viewing."
+    },
+    "empty_state_illustration": {
+      "url": "https://images.unsplash.com/photo-1514306191717-452ec28c7814?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzV8MHwxfHNlYXJjaHwyfHxlbXB0eSUyMGRhcmslMjB0aGVhdHJlfGVufDB8fHx8MTc4MDUyMTg0OXww&ixlib=rb-4.1.0&q=85",
+      "alt": "Red theater curtain acting as an empty state visual."
+    }
+  },
+  "instructions_to_main_agent": [
+    "Always use the typography size hierarchy outlined in the scale (12, 14, 16, 20, 24). Do not use pixel sizes directly.",
+    "Do NOT use indigo, blue, or purple anywhere. Default to `#E63946` (Signal Red) for core actions, and the dark surfaces for everything else.",
+    "Implement the 'Dark-First Utility' personality. Elements should have 0 shadow tier, sharp or small radius (sm/md), and act as a live operational surface.",
+    "Ensure 'No AI content' constraints are clearly messaged on the Upload screen.",
+    "On the Home Feed, use 100% width edge-to-edge images for video thumbnails to prioritize the content, matching Mobbin UI patterns.",
+    "For the Player, ensure you implement standard mobile gestures: Tap to toggle controls, Double Tap for seek, and dragging for scrubbing.",
+    "Always apply a dark linear gradient scrim under text that sits on top of images (e.g. video durations, titles on the paywall)."
+  ]
+}
