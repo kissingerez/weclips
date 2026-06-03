@@ -43,7 +43,7 @@ rc_events_col = db["rc_events"]
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer = HTTPBearer(auto_error=False)
 
-app = FastAPI(title="Slate API")
+app = FastAPI(title="WeClips API")
 api = APIRouter(prefix="/api")
 
 
@@ -177,7 +177,7 @@ def video_to_public(v: dict) -> VideoPublic:
 # --- Routes: Auth ---
 @api.get("/")
 async def root():
-    return {"app": "Slate", "status": "ok"}
+    return {"app": "WeClips", "status": "ok"}
 
 
 @api.post("/auth/signup", response_model=TokenResp)

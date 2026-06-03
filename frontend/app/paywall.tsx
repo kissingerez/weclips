@@ -264,7 +264,7 @@ const styles = StyleSheet.create({
   primaryText: { color: colors.onBrand, fontWeight: "900", fontSize: text.lg, letterSpacing: 0.5 },
   secondary: { paddingVertical: spacing.md, alignItems: "center", borderRadius: radius.md, borderWidth: 1, borderColor: colors.border },
   secondaryText: { color: colors.onSurface, fontWeight: "700" },
-  error: { color: colors.onSurface, backgroundColor: colors.brandTertiary, padding: spacing.md, borderRadius: radius.sm },
+  error: { color: colors.error, backgroundColor: colors.errorBg, padding: spacing.md, borderRadius: radius.sm },
   info: { color: colors.onBrand, backgroundColor: colors.success, padding: spacing.md, borderRadius: radius.sm },
   legal: { color: colors.onSurfaceTertiary, fontSize: 11, marginTop: spacing.sm, textAlign: "center", lineHeight: 16 },
 });

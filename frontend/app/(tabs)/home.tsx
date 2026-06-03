@@ -40,7 +40,7 @@ export default function Home() {
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>
       <View style={styles.header} testID="home-header">
-        <Text style={styles.brand}>SLATE</Text>
+        <Text style={styles.brand}>WeClips</Text>
         <Text style={styles.badge}>AD-FREE · NO AI</Text>
       </View>
       {loading ? (
@@ -95,7 +95,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.divider,
   },
-  brand: { color: colors.brand, fontSize: 28, fontWeight: "900", letterSpacing: 3 },
+  brand: { color: colors.brand, fontSize: 26, fontWeight: "900", letterSpacing: 0.5 },
   badge: {
     color: colors.onSurfaceSecondary,
     fontSize: 10,
@@ -109,7 +109,7 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl },
   emptyTitle: { color: colors.onSurface, fontSize: text.xl, fontWeight: "700", marginTop: spacing.md },
   emptySub: { color: colors.onSurfaceSecondary, fontSize: text.base, textAlign: "center", marginTop: spacing.sm },
-  errorText: { color: colors.brand, marginBottom: spacing.md },
+  errorText: { color: colors.error, marginBottom: spacing.md },
   retryBtn: { backgroundColor: colors.brand, paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderRadius: 8 },
   retryText: { color: colors.onBrand, fontWeight: "700" },
 });

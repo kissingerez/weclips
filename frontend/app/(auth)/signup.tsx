@@ -40,7 +40,7 @@ export default function Signup() {
     <SafeAreaView style={styles.root} edges={["top", "bottom"]}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-          <Text style={styles.brand}>SLATE</Text>
+          <Text style={styles.brand}>WeClips</Text>
           <Text style={styles.tagline}>Create your account. Subscribe for $1/month to upload.</Text>
 
           <Text style={styles.h1}>Create account</Text>
@@ -98,7 +98,7 @@ export default function Signup() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.surface },
   scroll: { padding: spacing.xl, justifyContent: "center", flexGrow: 1 },
-  brand: { color: colors.brand, fontSize: 44, fontWeight: "900", letterSpacing: 4, marginBottom: spacing.xs },
+  brand: { color: colors.brand, fontSize: 40, fontWeight: "900", letterSpacing: 1, marginBottom: spacing.xs },
   tagline: { color: colors.onSurfaceSecondary, fontSize: text.base, marginBottom: spacing.xxl },
   h1: { color: colors.onSurface, fontSize: text.xxl, fontWeight: "700", marginBottom: spacing.lg },
   input: {
@@ -114,7 +114,7 @@ const styles = StyleSheet.create({
   },
   btn: { backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: "center", marginTop: spacing.sm },
   btnText: { color: colors.onBrand, fontWeight: "700", fontSize: text.lg },
-  error: { color: colors.brand, backgroundColor: colors.brandTertiary, padding: spacing.md, borderRadius: radius.sm, marginBottom: spacing.md },
+  error: { color: colors.error, backgroundColor: colors.errorBg, padding: spacing.md, borderRadius: radius.sm, marginBottom: spacing.md },
   linkRow: { flexDirection: "row", justifyContent: "center", marginTop: spacing.lg },
   linkMuted: { color: colors.onSurfaceSecondary },
   link: { color: colors.brand, fontWeight: "700" },

@@ -42,7 +42,7 @@ export default function Login() {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-          <Text style={styles.brand} testID="brand-logo">SLATE</Text>
+          <Text style={styles.brand} testID="brand-logo">WeClips</Text>
           <Text style={styles.tagline}>Ad-free video, $1/month. No AI. Ever.</Text>
 
           <View style={styles.form}>
@@ -98,9 +98,9 @@ const styles = StyleSheet.create({
   scroll: { padding: spacing.xl, justifyContent: "center", flexGrow: 1 },
   brand: {
     color: colors.brand,
-    fontSize: 44,
+    fontSize: 40,
     fontWeight: "900",
-    letterSpacing: 4,
+    letterSpacing: 1,
     marginBottom: spacing.xs,
   },
   tagline: { color: colors.onSurfaceSecondary, fontSize: text.base, marginBottom: spacing.xxl },
@@ -126,8 +126,8 @@ const styles = StyleSheet.create({
   },
   btnText: { color: colors.onBrand, fontWeight: "700", fontSize: text.lg },
   error: {
-    color: colors.brand,
-    backgroundColor: colors.brandTertiary,
+    color: colors.error,
+    backgroundColor: colors.errorBg,
     padding: spacing.md,
     borderRadius: radius.sm,
     marginBottom: spacing.md,

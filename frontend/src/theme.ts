@@ -5,16 +5,20 @@ export const colors = {
   onSurfaceSecondary: "#B3B3B3",
   surfaceTertiary: "#262626",
   onSurfaceTertiary: "#8C8C8C",
-  brand: "#E63946",
+  // Brand: turquoise
+  brand: "#14B8A6",
   onBrand: "#FFFFFF",
-  brandTertiary: "#4D1317",
-  onBrandTertiary: "#FFD9DB",
+  brandTertiary: "#0F4D47",
+  onBrandTertiary: "#CCFBF1",
   border: "#333333",
   borderStrong: "#4D4D4D",
   divider: "#1A1A1A",
   success: "#2A9D8F",
   warning: "#E9C46A",
+  // Errors stay red regardless of brand color
   error: "#E63946",
+  errorBg: "#4D1317",
+  onError: "#FFD9DB",
 };
 
 export const spacing = {

@@ -172,7 +172,7 @@ export default function Upload() {
               {noAi && <Ionicons name="checkmark" size={16} color={colors.onBrand} />}
             </View>
             <Text style={styles.checkLabel}>
-              I confirm this video is <Text style={styles.bold}>NOT AI-generated</Text>. Slate bans synthetic
+              I confirm this video is <Text style={styles.bold}>NOT AI-generated</Text>. WeClips bans synthetic
               content.
             </Text>
           </Pressable>
@@ -262,6 +262,6 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
   submitText: { color: colors.onBrand, fontWeight: "800", fontSize: text.lg },
-  error: { color: colors.brand, backgroundColor: colors.brandTertiary, padding: spacing.md, borderRadius: radius.sm, marginBottom: spacing.sm },
+  error: { color: colors.error, backgroundColor: colors.errorBg, padding: spacing.md, borderRadius: radius.sm, marginBottom: spacing.sm },
   success: { color: colors.onBrand, backgroundColor: colors.success, padding: spacing.md, borderRadius: radius.sm, marginBottom: spacing.sm },
 });
