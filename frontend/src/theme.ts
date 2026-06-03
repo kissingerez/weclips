@@ -55,5 +55,4 @@ export const brandFont = {
     android: "sans-serif-condensed",
     default: "serif",
   }),
-  fontStyle: "italic" as const,
 };
