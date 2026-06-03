@@ -41,7 +41,7 @@ export default function Home() {
     <SafeAreaView style={styles.root} edges={["top"]}>
       <View style={styles.header} testID="home-header">
         <Text style={styles.brand}>WeClips</Text>
-        <Text style={styles.badge}>AD-FREE · NO AI · CALM</Text>
+        <Text style={styles.badge}>AD-FREE · CHRISTIAN · CALM</Text>
       </View>
       {loading ? (
         <View style={styles.center}>

@@ -176,8 +176,12 @@ export default function Upload() {
               <Text style={styles.policyRule}>• Not AI-generated</Text>
               <Text style={styles.policyRule}>• Only one music/audio track at a time (no two songs overlapping)</Text>
               <Text style={styles.policyRule}>• No excessive sound effects</Text>
+              <Text style={styles.policyRule}>
+                • Christian-friendly or neutral content only — nothing demonic. Anime & cartoons are welcome
+                if they don't advocate anti-Christian beliefs.
+              </Text>
               <Text style={styles.policyHint}>
-                We ban overstimulating content so videos stay watchable and comprehensible.
+                We ban overstimulating and spiritually harmful content so videos stay watchable and uplifting.
               </Text>
             </View>
           </Pressable>

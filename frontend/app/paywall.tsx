@@ -169,6 +169,7 @@ export default function Paywall() {
             <Bullet text="100% human-made content (AI banned)." />
             <Bullet text="One audio track per video — no overlapping music." />
             <Bullet text="No sound-effect overload. Watchable, comprehensible." />
+            <Bullet text="Christian-friendly or neutral. Nothing demonic." />
             <Bullet text="Upload your own videos." />
             <Bullet text="Billed by Apple / Google. Cancel anytime." />
           </View>
