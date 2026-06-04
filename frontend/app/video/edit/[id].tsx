@@ -16,6 +16,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { api, API_BASE, ApiError } from "@/src/lib/api";
+import { Toast } from "@/src/components/Toast";
 import { colors, radius, spacing, text } from "@/src/theme";
 
 function blobToBase64(blob: Blob): Promise<string> {
@@ -56,6 +57,7 @@ export default function EditVideo() {
   >([]);
   const [autoBusy, setAutoBusy] = useState(false);
   const [selectedAuto, setSelectedAuto] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -113,6 +115,7 @@ export default function EditVideo() {
       await api.put(`/videos/${id}/thumbnail`, { thumbnail_base64: b64 });
       setThumbVer(Date.now());
       setOk("Thumbnail updated.");
+      setToast("Thumbnail saved");
     } catch (e: any) {
       setErr(e?.message || "Failed to update thumbnail");
     }
@@ -147,6 +150,7 @@ export default function EditVideo() {
       setNewThumbUri(`data:image/jpeg;base64,${opt.base64}`);
       setThumbVer(Date.now());
       setOk(`Thumbnail set from ${opt.label}.`);
+      setToast("Thumbnail saved");
     } catch (e: any) {
       setErr(e?.message || "Failed to update thumbnail");
     }
@@ -164,6 +168,7 @@ export default function EditVideo() {
     try {
       await api.patch(`/videos/${id}`, { title: t, description: desc.trim() });
       setOk("Saved.");
+      setToast("Saved");
     } catch (e: any) {
       setErr(e?.message || "Save failed");
     } finally {
@@ -370,6 +375,12 @@ export default function EditVideo() {
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
+      <Toast
+        message={toast}
+        variant="success"
+        onHide={() => setToast(null)}
+        testID="edit-video-toast"
+      />
     </SafeAreaView>
   );
 }

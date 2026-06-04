@@ -120,6 +120,7 @@ class UserPublic(BaseModel):
     email: EmailStr
     display_name: str
     username: Optional[str] = None
+    bio: Optional[str] = None
     has_avatar: bool = False
     is_subscribed: bool
     subscription_status: str
@@ -132,6 +133,7 @@ class UserSearchResult(BaseModel):
     id: str
     display_name: str
     username: Optional[str] = None
+    bio: Optional[str] = None
     has_avatar: bool = False
     followers: int = 0
 
@@ -139,6 +141,7 @@ class UserSearchResult(BaseModel):
 class UpdateMeReq(BaseModel):
     display_name: Optional[str] = Field(default=None, min_length=1, max_length=40)
     username: Optional[str] = Field(default=None, min_length=3, max_length=20)
+    bio: Optional[str] = Field(default=None, max_length=300)
     email: Optional[EmailStr] = None
     current_password: Optional[str] = None
     new_password: Optional[str] = Field(default=None, min_length=6)
@@ -177,6 +180,7 @@ class VideoPublic(BaseModel):
     views: int
     likes: int
     has_thumbnail: bool
+    thumbnail_updated_at: Optional[datetime] = None
     created_at: datetime
 
 
@@ -313,6 +317,7 @@ def user_to_public(u: dict) -> UserPublic:
         email=u["email"],
         display_name=u["display_name"],
         username=u.get("username"),
+        bio=u.get("bio"),
         has_avatar=bool(u.get("avatar_base64")),
         is_subscribed=bool(u.get("is_subscribed", False)),
         subscription_status=u.get("subscription_status", "none"),
@@ -334,6 +339,7 @@ def video_to_public(v: dict) -> VideoPublic:
         views=int(v.get("views", 0)),
         likes=int(v.get("likes", 0)),
         has_thumbnail=bool(v.get("thumbnail_base64")),
+        thumbnail_updated_at=v.get("thumbnail_updated_at"),
         created_at=v["created_at"],
     )
 
@@ -416,7 +422,7 @@ async def search_users(
                 },
             ]
         },
-        {"_id": 1, "display_name": 1, "username": 1, "avatar_base64": 1},
+        {"_id": 1, "display_name": 1, "username": 1, "avatar_base64": 1, "bio": 1},
     ).limit(min(max(limit, 1), 50))
     results: List[UserSearchResult] = []
     async for u in cursor:
@@ -428,6 +434,7 @@ async def search_users(
                 id=u["_id"],
                 display_name=u.get("display_name") or "User",
                 username=u.get("username"),
+                bio=u.get("bio"),
                 has_avatar=bool(u.get("avatar_base64")),
                 followers=followers,
             )
@@ -439,7 +446,7 @@ async def search_users(
 async def get_user_public(target_user_id: str, user: dict = Depends(get_current_user)):
     u = await users_col.find_one(
         {"_id": target_user_id},
-        {"display_name": 1, "username": 1, "avatar_base64": 1},
+        {"display_name": 1, "username": 1, "avatar_base64": 1, "bio": 1},
     )
     if not u:
         raise HTTPException(status_code=404, detail="User not found")
@@ -448,6 +455,7 @@ async def get_user_public(target_user_id: str, user: dict = Depends(get_current_
         id=u["_id"],
         display_name=u.get("display_name") or "User",
         username=u.get("username"),
+        bio=u.get("bio"),
         has_avatar=bool(u.get("avatar_base64")),
         followers=followers,
     )
@@ -467,6 +475,27 @@ async def get_user_avatar(target_user_id: str):
         media_type="image/jpeg",
         headers={"Cache-Control": "public, max-age=3600"},
     )
+
+
+@api.get("/users/{target_user_id}/videos", response_model=List[VideoPublic])
+async def get_user_videos(target_user_id: str, user: dict = Depends(get_current_user)):
+    cursor = (
+        videos_col.find(
+            {
+                "creator_id": target_user_id,
+                "$or": [
+                    {"upload_complete": True},
+                    {"upload_complete": {"$exists": False}},
+                ],
+            }
+        )
+        .sort("created_at", -1)
+        .limit(100)
+    )
+    out: List[VideoPublic] = []
+    async for v in cursor:
+        out.append(video_to_public(v))
+    return out
 
 
 @api.put("/auth/me/avatar")
@@ -540,6 +569,10 @@ async def update_me(body: UpdateMeReq, user: dict = Depends(get_current_user)):
             if taken:
                 raise HTTPException(status_code=400, detail="Username already taken")
             updates["username"] = new_u
+
+    # Bio
+    if body.bio is not None:
+        updates["bio"] = body.bio.strip()
 
     # Email
     if body.email is not None:
@@ -1262,8 +1295,11 @@ async def _ffmpeg_extract_frame(source: str, at_sec: float, out_path: str) -> bo
             "-ss", f"{max(0.0, at_sec):.2f}",
             "-i", source,
             "-frames:v", "1",
-            "-vf", "scale='min(720,iw)':-2",
-            "-q:v", "5",
+            # Scale to up to 1280px wide, keep aspect, ensure even dimensions
+            "-vf", "scale='min(1280,iw)':-2:flags=lanczos",
+            # Lower q:v = higher quality (2 is near-visually-lossless for JPEG)
+            "-q:v", "2",
+            "-pix_fmt", "yuvj420p",
             "-f", "image2",
             out_path,
             stdout=asyncio.subprocess.DEVNULL,
@@ -1358,7 +1394,8 @@ async def set_thumbnail(
         raise HTTPException(status_code=400, detail="Invalid base64 image data")
 
     await videos_col.update_one(
-        {"_id": video_id}, {"$set": {"thumbnail_base64": raw}}
+        {"_id": video_id},
+        {"$set": {"thumbnail_base64": raw, "thumbnail_updated_at": now_utc()}},
     )
     return {"ok": True, "has_thumbnail": True}
 

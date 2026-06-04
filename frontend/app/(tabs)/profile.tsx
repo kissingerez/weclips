@@ -84,6 +84,11 @@ export default function Profile() {
               </Text>
             ) : null}
             <Text style={styles.email}>{user?.email}</Text>
+            {user?.bio ? (
+              <Text style={styles.bio} testID="profile-bio" numberOfLines={4}>
+                {user.bio}
+              </Text>
+            ) : null}
             <View style={styles.statusRow}>
               <View
                 style={[
@@ -293,6 +298,7 @@ const styles = StyleSheet.create({
   name: { color: colors.onSurface, fontSize: text.xl, fontWeight: "800" },
   username: { color: colors.brand, fontSize: text.sm, fontWeight: "700", marginTop: 2 },
   email: { color: colors.onSurfaceSecondary, fontSize: text.sm, marginTop: 2 },
+  bio: { color: colors.onSurface, fontSize: text.sm, marginTop: spacing.xs, lineHeight: 18 },
   statusRow: { flexDirection: "row", marginTop: spacing.sm },
   statusBadge: {
     flexDirection: "row",

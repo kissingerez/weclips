@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { VideoCard, VideoCardData } from "@/src/components/VideoCard";
+import { useRouter } from "expo-router";
 import { Avatar } from "@/src/components/Avatar";
 import { api } from "@/src/lib/api";
 import { colors, radius, spacing, text } from "@/src/theme";
@@ -160,6 +161,7 @@ export default function Search() {
 }
 
 function UserRow({ user }: { user: UserResult }) {
+  const router = useRouter();
   const [following, setFollowing] = useState(false);
   const [followers, setFollowers] = useState(user.followers);
   const [busy, setBusy] = useState(false);
@@ -205,25 +207,32 @@ function UserRow({ user }: { user: UserResult }) {
 
   return (
     <View style={styles.userRow} testID={`user-result-${user.id}`}>
-      <Avatar
-        userId={user.id}
-        displayName={user.display_name}
-        hasAvatar={!!user.has_avatar}
-        size={48}
-      />
-      <View style={{ flex: 1 }}>
-        <Text style={styles.userName} numberOfLines={1}>
-          {user.display_name}
-        </Text>
-        {user.username ? (
-          <Text style={styles.userHandle} numberOfLines={1}>
-            @{user.username}
+      <Pressable
+        testID={`user-open-${user.id}`}
+        onPress={() => router.push(`/user/${user.id}`)}
+        style={styles.userRowMain}
+        hitSlop={6}
+      >
+        <Avatar
+          userId={user.id}
+          displayName={user.display_name}
+          hasAvatar={!!user.has_avatar}
+          size={48}
+        />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.userName} numberOfLines={1}>
+            {user.display_name}
           </Text>
-        ) : null}
-        <Text style={styles.userMeta}>
-          {followers} {followers === 1 ? "follower" : "followers"}
-        </Text>
-      </View>
+          {user.username ? (
+            <Text style={styles.userHandle} numberOfLines={1}>
+              @{user.username}
+            </Text>
+          ) : null}
+          <Text style={styles.userMeta}>
+            {followers} {followers === 1 ? "follower" : "followers"}
+          </Text>
+        </View>
+      </Pressable>
       <Pressable
         testID={`user-follow-${user.id}`}
         onPress={toggle}
@@ -299,6 +308,12 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: colors.divider,
+  },
+  userRowMain: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
   },
   avatar: {
     width: 48,

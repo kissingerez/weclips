@@ -14,13 +14,19 @@ export type VideoCardData = {
   creator_username?: string | null;
   views: number;
   has_thumbnail: boolean;
+  thumbnail_updated_at?: string | null;
   created_at: string;
 };
 
 export const VideoCard: React.FC<{ video: VideoCardData }> = ({ video }) => {
   const router = useRouter();
   const { user } = useAuth();
-  const thumb = video.has_thumbnail ? `${API_BASE}/videos/${video.id}/thumbnail` : null;
+  const cacheBust = video.thumbnail_updated_at
+    ? `?v=${encodeURIComponent(video.thumbnail_updated_at)}`
+    : "";
+  const thumb = video.has_thumbnail
+    ? `${API_BASE}/videos/${video.id}/thumbnail${cacheBust}`
+    : null;
   const locked = !user?.is_subscribed;
 
   return (

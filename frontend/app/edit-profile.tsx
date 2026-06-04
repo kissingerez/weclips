@@ -38,6 +38,7 @@ export default function EditProfile() {
 
   const [displayName, setDisplayName] = useState("");
   const [username, setUsername] = useState("");
+  const [bio, setBio] = useState("");
   const [email, setEmail] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -111,6 +112,7 @@ export default function EditProfile() {
     if (user) {
       setDisplayName(user.display_name || "");
       setUsername(user.username || "");
+      setBio(user.bio || "");
       setEmail(user.email || "");
     }
   }, [user]);
@@ -154,6 +156,7 @@ export default function EditProfile() {
     const body: any = {};
     if (trimmedName !== user?.display_name) body.display_name = trimmedName;
     if (u && u !== user?.username) body.username = u;
+    if (bio !== (user?.bio || "")) body.bio = bio;
     if (trimmedEmail !== user?.email) body.email = trimmedEmail;
     if (wantsPwChange) {
       body.current_password = currentPassword;
@@ -281,6 +284,18 @@ export default function EditProfile() {
           <Text style={styles.hint}>
             3-20 lowercase letters, numbers and underscores. Others find you by this handle.
           </Text>
+
+          <Text style={styles.label}>Bio</Text>
+          <TextInput
+            testID="edit-bio"
+            style={[styles.input, { minHeight: 80, textAlignVertical: "top" }]}
+            value={bio}
+            onChangeText={setBio}
+            multiline
+            maxLength={300}
+            placeholder="Tell people a bit about yourself (max 300 chars)"
+            placeholderTextColor={colors.onSurfaceTertiary}
+          />
 
           <Text style={styles.label}>Email</Text>
           <TextInput
