@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -23,6 +23,7 @@ type VideoDetail = {
   id: string;
   title: string;
   description: string;
+  creator_id: string;
   creator_name: string;
   views: number;
   likes: number;
@@ -47,6 +48,9 @@ export default function VideoScreen() {
   const [likes, setLikes] = useState(0);
   const [newComment, setNewComment] = useState("");
   const [streamUrl, setStreamUrl] = useState<string>("");
+  const [following, setFollowing] = useState(false);
+  const [followerCount, setFollowerCount] = useState(0);
+  const videoRef = useRef<any>(null);
 
   // Resolve a stream URL for the player:
   //  - For R2-backed videos this is a presigned Cloudflare URL with Range support.
@@ -144,6 +148,45 @@ export default function VideoScreen() {
     }
   };
 
+  // Load follow status when video metadata is available
+  useEffect(() => {
+    if (!video?.creator_id || !user || video.creator_id === user.id) return;
+    (async () => {
+      try {
+        const r = await api.get<{ following: boolean; followers: number }>(
+          `/users/${video.creator_id}/follow-status`
+        );
+        setFollowing(r.following);
+        setFollowerCount(r.followers);
+      } catch {}
+    })();
+  }, [video?.creator_id, user]);
+
+  const toggleFollow = async () => {
+    if (!user || !video) return;
+    try {
+      if (following) {
+        const r = await api.del<{ following: boolean; followers: number }>(
+          `/users/${video.creator_id}/follow`
+        );
+        setFollowing(r.following);
+        setFollowerCount(r.followers);
+      } else {
+        const r = await api.post<{ following: boolean; followers: number }>(
+          `/users/${video.creator_id}/follow`
+        );
+        setFollowing(r.following);
+        setFollowerCount(r.followers);
+      }
+    } catch {}
+  };
+
+  const goFullscreen = () => {
+    try {
+      videoRef.current?.enterFullscreen?.();
+    } catch {}
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.root}>
@@ -173,6 +216,7 @@ export default function VideoScreen() {
         <View style={styles.playerWrap}>
           <VideoView
             testID="video-player"
+            ref={videoRef}
             style={styles.player}
             player={player}
             allowsFullscreen
@@ -181,6 +225,14 @@ export default function VideoScreen() {
           />
           <Pressable testID="video-back-button" onPress={() => router.back()} style={styles.backIcon} hitSlop={10}>
             <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
+          </Pressable>
+          <Pressable
+            testID="video-fullscreen-button"
+            onPress={goFullscreen}
+            style={styles.fsIcon}
+            hitSlop={10}
+          >
+            <Ionicons name="expand" size={22} color={colors.onSurface} />
           </Pressable>
         </View>
 
@@ -191,6 +243,16 @@ export default function VideoScreen() {
               <Text style={styles.sub}>
                 {video.creator_name} · {video.views} {video.views === 1 ? "view" : "views"}
               </Text>
+
+              {user && video.creator_id !== user.id ? (
+                <Pressable testID="video-follow-button" onPress={toggleFollow} style={[styles.followBtn, following && styles.followingBtn]}>
+                  <Ionicons name={following ? "checkmark" : "person-add"} size={14} color={following ? colors.onSurface : colors.onBrand} />
+                  <Text style={[styles.followText, following && styles.followingText]}>
+                    {following ? "Following" : "Follow"}
+                  </Text>
+                  {followerCount > 0 ? <Text style={[styles.followCount, following && styles.followingText]}>· {followerCount}</Text> : null}
+                </Pressable>
+              ) : null}
 
               <View style={styles.actionRow}>
                 <Pressable testID="video-like-button" onPress={toggleLike} style={styles.actionBtn}>
@@ -257,6 +319,12 @@ const styles = StyleSheet.create({
   playerWrap: { width: "100%", aspectRatio: 16 / 9, backgroundColor: "#000" },
   player: { width: "100%", height: "100%" },
   backIcon: { position: "absolute", top: spacing.sm, left: spacing.sm, padding: spacing.sm, backgroundColor: "rgba(0,0,0,0.45)", borderRadius: radius.pill },
+  fsIcon: { position: "absolute", top: spacing.sm, right: spacing.sm, padding: spacing.sm, backgroundColor: "rgba(0,0,0,0.45)", borderRadius: radius.pill },
+  followBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.pill, alignSelf: "flex-start", marginTop: spacing.sm },
+  followingBtn: { backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border },
+  followText: { color: colors.onBrand, fontWeight: "700", fontSize: text.sm },
+  followingText: { color: colors.onSurface },
+  followCount: { color: colors.onBrand, fontSize: text.sm, fontWeight: "600", marginLeft: 4 },
   meta: { padding: spacing.lg },
   title: { color: colors.onSurface, fontSize: text.xl, fontWeight: "800" },
   sub: { color: colors.onSurfaceSecondary, fontSize: text.sm, marginTop: 4 },

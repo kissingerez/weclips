@@ -83,6 +83,7 @@ rc_events_col = db["rc_events"]
 password_resets_col = db["password_resets"]
 reports_col = db["reports"]
 blocks_col = db["blocks"]
+follows_col = db["follows"]
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer = HTTPBearer(auto_error=False)
@@ -1149,6 +1150,42 @@ async def get_config():
         "max_video_duration_sec": MAX_VIDEO_DURATION_SEC,
         "max_video_size_bytes": MAX_VIDEO_SIZE_BYTES,
     }
+
+
+# --- Follow / unfollow ---
+@api.post("/users/{target_user_id}/follow")
+async def follow_user(target_user_id: str, user: dict = Depends(get_current_user)):
+    if target_user_id == user["_id"]:
+        raise HTTPException(status_code=400, detail="Cannot follow yourself")
+    target = await users_col.find_one({"_id": target_user_id}, {"_id": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    await follows_col.update_one(
+        {"follower_id": user["_id"], "followee_id": target_user_id},
+        {"$setOnInsert": {"_id": str(uuid.uuid4()), "created_at": now_utc()}},
+        upsert=True,
+    )
+    followers = await follows_col.count_documents({"followee_id": target_user_id})
+    return {"following": True, "followers": followers}
+
+
+@api.delete("/users/{target_user_id}/follow")
+async def unfollow_user(target_user_id: str, user: dict = Depends(get_current_user)):
+    await follows_col.delete_one({"follower_id": user["_id"], "followee_id": target_user_id})
+    followers = await follows_col.count_documents({"followee_id": target_user_id})
+    return {"following": False, "followers": followers}
+
+
+@api.get("/users/{target_user_id}/follow-status")
+async def follow_status(target_user_id: str, user: dict = Depends(get_current_user)):
+    is_following = bool(
+        await follows_col.find_one(
+            {"follower_id": user["_id"], "followee_id": target_user_id}, {"_id": 1}
+        )
+    )
+    followers = await follows_col.count_documents({"followee_id": target_user_id})
+    following = await follows_col.count_documents({"follower_id": target_user_id})
+    return {"following": is_following, "followers": followers, "following_count": following}
 
 
 # --- Mount ---
