@@ -226,7 +226,7 @@ export default function VideoScreen() {
             contentFit="contain"
           />
           <Pressable testID="video-back-button" onPress={() => router.back()} style={styles.backIcon} hitSlop={10}>
-            <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
+            <Ionicons name="arrow-back" size={26} color="#ffffff" />
           </Pressable>
           <Pressable
             testID="video-fullscreen-button"
@@ -245,7 +245,7 @@ export default function VideoScreen() {
             style={styles.fsIcon}
             hitSlop={10}
           >
-            <Ionicons name="expand" size={22} color={colors.onSurface} />
+            <Ionicons name="expand" size={24} color="#ffffff" />
           </Pressable>
         </View>
 
@@ -331,8 +331,8 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   playerWrap: { width: "100%", aspectRatio: 16 / 9, backgroundColor: "#000" },
   player: { width: "100%", height: "100%" },
-  backIcon: { position: "absolute", top: spacing.sm, left: spacing.sm, padding: spacing.sm, backgroundColor: "rgba(0,0,0,0.45)", borderRadius: radius.pill },
-  fsIcon: { position: "absolute", top: spacing.sm, right: spacing.sm, padding: spacing.sm, backgroundColor: "rgba(0,0,0,0.45)", borderRadius: radius.pill },
+  backIcon: { position: "absolute", top: spacing.sm, left: spacing.sm, padding: spacing.sm, backgroundColor: "rgba(0,0,0,0.7)", borderRadius: radius.pill, shadowColor: "#000", shadowOpacity: 0.4, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 4 },
+  fsIcon: { position: "absolute", top: spacing.sm, right: spacing.sm, padding: spacing.sm, backgroundColor: "rgba(0,0,0,0.7)", borderRadius: radius.pill, shadowColor: "#000", shadowOpacity: 0.4, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 4 },
   followBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.pill, alignSelf: "flex-start", marginTop: spacing.sm },
   followingBtn: { backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border },
   followText: { color: colors.onBrand, fontWeight: "700", fontSize: text.sm },

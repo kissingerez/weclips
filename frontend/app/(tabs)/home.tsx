@@ -1,17 +1,28 @@
 import { useCallback, useEffect, useState } from "react";
 import { FlatList, RefreshControl, StyleSheet, Text, View, ActivityIndicator, Pressable } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { VideoCard, VideoCardData } from "@/src/components/VideoCard";
 import { api } from "@/src/lib/api";
-import { colors, spacing, text, brandFont } from "@/src/theme";
+import { colors, spacing, text, brandFont, radius } from "@/src/theme";
 
 export default function Home() {
+  const router = useRouter();
   const [videos, setVideos] = useState<VideoCardData[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [unread, setUnread] = useState(0);
+
+  const loadUnread = useCallback(async () => {
+    try {
+      const r = await api.get<{ count: number }>("/notifications/unread-count");
+      setUnread(r.count || 0);
+    } catch {
+      setUnread(0);
+    }
+  }, []);
 
   const load = useCallback(async (showSpinner = false) => {
     try {
@@ -30,18 +41,37 @@ export default function Home() {
   useFocusEffect(
     useCallback(() => {
       load();
-    }, [load])
+      loadUnread();
+    }, [load, loadUnread])
   );
 
   useEffect(() => {
     load(true);
-  }, [load]);
+    loadUnread();
+  }, [load, loadUnread]);
 
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>
       <View style={styles.header} testID="home-header">
-        <Text style={styles.brand}>WeClips</Text>
-        <Text style={styles.badge}>AD-FREE · CHRISTIAN · CALM</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.brand}>WeClips</Text>
+          <Text style={styles.badge}>AD-FREE · CHRISTIAN · CALM</Text>
+        </View>
+        <Pressable
+          testID="home-notifications-button"
+          onPress={() => router.push("/notifications")}
+          style={styles.bellBtn}
+          hitSlop={8}
+        >
+          <Ionicons name="notifications" size={22} color={colors.brand} />
+          {unread > 0 ? (
+            <View style={styles.bellBadge}>
+              <Text style={styles.bellBadgeText} numberOfLines={1}>
+                {unread > 99 ? "99+" : unread}
+              </Text>
+            </View>
+          ) : null}
+        </Pressable>
       </View>
       {loading ? (
         <View style={styles.center}>
@@ -112,4 +142,34 @@ const styles = StyleSheet.create({
   errorText: { color: colors.error, marginBottom: spacing.md },
   retryBtn: { backgroundColor: colors.brand, paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderRadius: 8 },
   retryText: { color: colors.onBrand, fontWeight: "700" },
+  bellBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  bellBadge: {
+    position: "absolute",
+    top: -4,
+    right: -4,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: colors.error,
+    paddingHorizontal: 4,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: colors.surface,
+  },
+  bellBadgeText: {
+    color: colors.onBrand,
+    fontSize: 10,
+    fontWeight: "800",
+  },
 });

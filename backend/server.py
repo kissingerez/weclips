@@ -89,6 +89,7 @@ password_resets_col = db["password_resets"]
 reports_col = db["reports"]
 blocks_col = db["blocks"]
 follows_col = db["follows"]
+notifications_col = db["notifications"]
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer = HTTPBearer(auto_error=False)
@@ -1416,7 +1417,9 @@ async def set_thumbnail(
 
 @api.post("/videos/{video_id}/like")
 async def like_video(video_id: str, user: dict = Depends(require_subscriber)):
-    v = await videos_col.find_one({"_id": video_id}, {"liked_by": 1, "likes": 1})
+    v = await videos_col.find_one(
+        {"_id": video_id}, {"liked_by": 1, "likes": 1, "creator_id": 1, "title": 1}
+    )
     if not v:
         raise HTTPException(status_code=404, detail="Not found")
     liked_by = v.get("liked_by", []) or []
@@ -1430,6 +1433,34 @@ async def like_video(video_id: str, user: dict = Depends(require_subscriber)):
         {"_id": video_id},
         {"$addToSet": {"liked_by": user["_id"]}, "$inc": {"likes": 1}},
     )
+    # Notify creator. Collapse repeat likes by upserting one row per (actor, video).
+    try:
+        await notifications_col.update_one(
+            {
+                "recipient_id": v.get("creator_id"),
+                "type": "like",
+                "actor_id": user["_id"],
+                "video_id": video_id,
+            },
+            {
+                "$set": {
+                    "_id": str(uuid.uuid4()),
+                    "recipient_id": v.get("creator_id"),
+                    "type": "like",
+                    "actor_id": user["_id"],
+                    "actor_name": user.get("display_name") or "Someone",
+                    "actor_username": user.get("username"),
+                    "actor_has_avatar": bool(user.get("avatar_base64")),
+                    "video_id": video_id,
+                    "video_title": v.get("title"),
+                    "read": False,
+                    "created_at": now_utc(),
+                }
+            },
+            upsert=True,
+        )
+    except Exception as e:
+        logger.warning("like notification failed: %s", e)
     return {"liked": True, "likes": int(v.get("likes", 0)) + 1}
 
 
@@ -1453,7 +1484,7 @@ async def list_comments(video_id: str, user: dict = Depends(require_subscriber))
 
 @api.post("/videos/{video_id}/comments", response_model=CommentPublic)
 async def add_comment(video_id: str, body: CommentReq, user: dict = Depends(require_subscriber)):
-    v = await videos_col.find_one({"_id": video_id}, {"_id": 1})
+    v = await videos_col.find_one({"_id": video_id}, {"_id": 1, "creator_id": 1, "title": 1})
     if not v:
         raise HTTPException(status_code=404, detail="Video not found")
     cid = str(uuid.uuid4())
@@ -1466,6 +1497,18 @@ async def add_comment(video_id: str, body: CommentReq, user: dict = Depends(requ
         "created_at": now_utc(),
     }
     await comments_col.insert_one(doc)
+    # Notify the video's creator
+    try:
+        await _create_notification(
+            recipient_id=v.get("creator_id"),
+            actor=user,
+            type_="comment",
+            video_id=video_id,
+            video_title=v.get("title"),
+            text=body.text.strip()[:200],
+        )
+    except Exception as e:
+        logger.warning("comment notification failed: %s", e)
     return CommentPublic(
         id=cid,
         video_id=video_id,
@@ -1674,6 +1717,13 @@ async def follow_user(target_user_id: str, user: dict = Depends(get_current_user
         {"$setOnInsert": {"_id": str(uuid.uuid4()), "created_at": now_utc()}},
         upsert=True,
     )
+    # Notify the followed user (idempotent for follow type)
+    try:
+        await _create_notification(
+            recipient_id=target_user_id, actor=user, type_="follow"
+        )
+    except Exception as e:
+        logger.warning("follow notification failed: %s", e)
     followers = await follows_col.count_documents({"followee_id": target_user_id})
     return {"following": True, "followers": followers}
 
@@ -1695,6 +1745,101 @@ async def follow_status(target_user_id: str, user: dict = Depends(get_current_us
     followers = await follows_col.count_documents({"followee_id": target_user_id})
     following = await follows_col.count_documents({"follower_id": target_user_id})
     return {"following": is_following, "followers": followers, "following_count": following}
+
+
+class NotificationPublic(BaseModel):
+    id: str
+    type: str  # 'follow' | 'comment' | 'like'
+    actor_id: str
+    actor_name: str
+    actor_username: Optional[str] = None
+    actor_has_avatar: bool = False
+    video_id: Optional[str] = None
+    video_title: Optional[str] = None
+    text: Optional[str] = None
+    read: bool = False
+    created_at: datetime
+
+
+async def _create_notification(
+    *,
+    recipient_id: str,
+    actor: dict,
+    type_: str,
+    video_id: Optional[str] = None,
+    video_title: Optional[str] = None,
+    text: Optional[str] = None,
+):
+    """Insert a notification doc. Silently ignores self-actions and duplicate
+    follow events (so re-following doesn't spam the bell)."""
+    if recipient_id == actor["_id"]:
+        return
+    doc = {
+        "_id": str(uuid.uuid4()),
+        "recipient_id": recipient_id,
+        "type": type_,
+        "actor_id": actor["_id"],
+        "actor_name": actor.get("display_name") or "Someone",
+        "actor_username": actor.get("username"),
+        "actor_has_avatar": bool(actor.get("avatar_base64")),
+        "video_id": video_id,
+        "video_title": video_title,
+        "text": text,
+        "read": False,
+        "created_at": now_utc(),
+    }
+    # For follow events, collapse re-follows by upserting a single row.
+    if type_ == "follow":
+        await notifications_col.update_one(
+            {"recipient_id": recipient_id, "type": "follow", "actor_id": actor["_id"]},
+            {"$set": {**doc, "_id": doc["_id"]}, "$setOnInsert": {}},
+            upsert=True,
+        )
+    else:
+        await notifications_col.insert_one(doc)
+
+
+@api.get("/notifications", response_model=List[NotificationPublic])
+async def list_notifications(user: dict = Depends(get_current_user), limit: int = 50):
+    cursor = (
+        notifications_col.find({"recipient_id": user["_id"]})
+        .sort("created_at", -1)
+        .limit(min(max(limit, 1), 100))
+    )
+    out: List[NotificationPublic] = []
+    async for n in cursor:
+        out.append(
+            NotificationPublic(
+                id=n["_id"],
+                type=n["type"],
+                actor_id=n["actor_id"],
+                actor_name=n.get("actor_name") or "Someone",
+                actor_username=n.get("actor_username"),
+                actor_has_avatar=bool(n.get("actor_has_avatar")),
+                video_id=n.get("video_id"),
+                video_title=n.get("video_title"),
+                text=n.get("text"),
+                read=bool(n.get("read")),
+                created_at=n["created_at"],
+            )
+        )
+    return out
+
+
+@api.get("/notifications/unread-count")
+async def unread_count(user: dict = Depends(get_current_user)):
+    c = await notifications_col.count_documents(
+        {"recipient_id": user["_id"], "read": False}
+    )
+    return {"count": c}
+
+
+@api.post("/notifications/mark-read")
+async def mark_read(user: dict = Depends(get_current_user)):
+    result = await notifications_col.update_many(
+        {"recipient_id": user["_id"], "read": False}, {"$set": {"read": True}}
+    )
+    return {"modified": result.modified_count}
 
 
 # --- Mount ---
