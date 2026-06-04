@@ -130,6 +130,18 @@ class UserSearchResult(BaseModel):
     followers: int = 0
 
 
+class UpdateMeReq(BaseModel):
+    display_name: Optional[str] = Field(default=None, min_length=1, max_length=40)
+    username: Optional[str] = Field(default=None, min_length=3, max_length=20)
+    email: Optional[EmailStr] = None
+    current_password: Optional[str] = None
+    new_password: Optional[str] = Field(default=None, min_length=6)
+
+
+class SetThumbnailReq(BaseModel):
+    thumbnail_base64: str = Field(min_length=20)
+
+
 class VideoUploadReq(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=2000)
@@ -444,6 +456,75 @@ async def login(body: LoginReq):
 @api.get("/auth/me", response_model=UserPublic)
 async def me(user: dict = Depends(get_current_user)):
     return user_to_public(user)
+
+
+@api.patch("/auth/me", response_model=UserPublic)
+async def update_me(body: UpdateMeReq, user: dict = Depends(get_current_user)):
+    updates: dict = {}
+
+    # Display name
+    if body.display_name is not None:
+        nm = body.display_name.strip()
+        if not nm:
+            raise HTTPException(status_code=400, detail="Display name cannot be empty")
+        updates["display_name"] = nm
+
+    # Username
+    if body.username is not None:
+        new_u = _normalize_username(body.username)
+        if not USERNAME_RE.match(new_u):
+            raise HTTPException(
+                status_code=400,
+                detail="Username must be 3-20 chars, lowercase letters/numbers/underscores.",
+            )
+        if new_u != user.get("username"):
+            taken = await users_col.find_one(
+                {"username": new_u, "_id": {"$ne": user["_id"]}}, {"_id": 1}
+            )
+            if taken:
+                raise HTTPException(status_code=400, detail="Username already taken")
+            updates["username"] = new_u
+
+    # Email
+    if body.email is not None:
+        new_email = body.email.lower()
+        if new_email != user.get("email"):
+            taken = await users_col.find_one(
+                {"email": new_email, "_id": {"$ne": user["_id"]}}, {"_id": 1}
+            )
+            if taken:
+                raise HTTPException(status_code=400, detail="Email already in use")
+            updates["email"] = new_email
+
+    # Password change
+    if body.new_password is not None:
+        if not body.current_password:
+            raise HTTPException(
+                status_code=400, detail="Current password required to set a new password"
+            )
+        # Fetch hash (we omitted it from `user` dict)
+        full = await users_col.find_one({"_id": user["_id"]}, {"password_hash": 1})
+        if not full or not verify_password(body.current_password, full.get("password_hash", "")):
+            raise HTTPException(status_code=400, detail="Current password is incorrect")
+        updates["password_hash"] = hash_password(body.new_password)
+
+    if not updates:
+        return user_to_public(user)
+
+    await users_col.update_one({"_id": user["_id"]}, {"$set": updates})
+
+    # Propagate display_name + username changes to existing videos so the
+    # creator badge stays in sync everywhere.
+    cascade: dict = {}
+    if "display_name" in updates:
+        cascade["creator_name"] = updates["display_name"]
+    if "username" in updates:
+        cascade["creator_username"] = updates["username"]
+    if cascade:
+        await videos_col.update_many({"creator_id": user["_id"]}, {"$set": cascade})
+
+    refreshed = await users_col.find_one({"_id": user["_id"]}, {"password_hash": 0})
+    return user_to_public(refreshed or user)
 
 
 # --- Password reset ---
@@ -1074,7 +1155,41 @@ async def get_thumbnail(video_id: str):
         data = base64.b64decode(v["thumbnail_base64"])
     except Exception:
         raise HTTPException(status_code=500, detail="Corrupt thumbnail")
-    return Response(content=data, media_type="image/jpeg")
+    return Response(
+        content=data,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@api.put("/videos/{video_id}/thumbnail")
+async def set_thumbnail(
+    video_id: str,
+    body: SetThumbnailReq,
+    user: dict = Depends(get_current_user),
+):
+    v = await videos_col.find_one({"_id": video_id}, {"creator_id": 1})
+    if not v:
+        raise HTTPException(status_code=404, detail="Not found")
+    if v.get("creator_id") != user["_id"]:
+        raise HTTPException(status_code=403, detail="Only the creator can change the thumbnail")
+
+    # Accept "data:image/jpeg;base64,..." or raw base64
+    raw = body.thumbnail_base64
+    if "," in raw and raw.startswith("data:"):
+        raw = raw.split(",", 1)[1]
+    # Sanity-check + cap size (~512KB encoded = ~384KB image)
+    if len(raw) > 800_000:
+        raise HTTPException(status_code=413, detail="Thumbnail too large (max ~512KB)")
+    try:
+        base64.b64decode(raw, validate=True)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 image data")
+
+    await videos_col.update_one(
+        {"_id": video_id}, {"$set": {"thumbnail_base64": raw}}
+    )
+    return {"ok": True, "has_thumbnail": True}
 
 
 @api.post("/videos/{video_id}/like")

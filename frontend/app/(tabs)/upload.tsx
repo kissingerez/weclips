@@ -9,10 +9,12 @@ import {
   Text,
   TextInput,
   View,
+  Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import * as VideoThumbnails from "expo-video-thumbnails";
 import { useRouter } from "expo-router";
 import { useAuth } from "@/src/lib/auth";
 import { API_BASE, api } from "@/src/lib/api";
@@ -31,6 +33,19 @@ function formatBytes(n: number | null): string {
   return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = (reader.result as string) || "";
+      const comma = result.indexOf(",");
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
 export default function Upload() {
   const { user, refresh } = useAuth();
   const router = useRouter();
@@ -41,9 +56,64 @@ export default function Upload() {
   const [pickedName, setPickedName] = useState<string>("video.mp4");
   const [pickedMime, setPickedMime] = useState<string>("video/mp4");
   const [pickedSize, setPickedSize] = useState<number | null>(null);
+  const [thumbUri, setThumbUri] = useState<string | null>(null);
+  const [thumbBase64, setThumbBase64] = useState<string | null>(null);
+  const [thumbBusy, setThumbBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+
+  const generateAutoThumb = async (videoUri: string) => {
+    try {
+      setThumbBusy(true);
+      // Try first second; fall back to frame 0 if that fails
+      const { uri } = await VideoThumbnails.getThumbnailAsync(videoUri, {
+        time: 1000,
+        quality: 0.7,
+      });
+      // Read as base64
+      const resp = await fetch(uri);
+      const blob = await resp.blob();
+      const b64 = await blobToBase64(blob);
+      setThumbUri(uri);
+      setThumbBase64(b64);
+    } catch (e) {
+      // Auto-thumb is best-effort; user can pick custom
+      setThumbUri(null);
+      setThumbBase64(null);
+    } finally {
+      setThumbBusy(false);
+    }
+  };
+
+  const pickCustomThumb = async () => {
+    setErr(null);
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      setErr("Media library permission required.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [16, 9],
+      quality: 0.7,
+      base64: true,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+    setThumbUri(asset.uri);
+    if (asset.base64) {
+      setThumbBase64(asset.base64);
+    } else {
+      try {
+        const resp = await fetch(asset.uri);
+        const blob = await resp.blob();
+        const b64 = await blobToBase64(blob);
+        setThumbBase64(b64);
+      } catch {}
+    }
+  };
 
   const pickVideo = async () => {
     setErr(null);
@@ -78,6 +148,10 @@ export default function Upload() {
     setPickedName(inferredName);
     setPickedMime(asset.mimeType || "video/mp4");
     setPickedSize((asset as any).fileSize ?? null);
+    // Best-effort auto-thumbnail (user can override)
+    setThumbUri(null);
+    setThumbBase64(null);
+    generateAutoThumb(asset.uri);
   };
 
   const onUpload = async () => {
@@ -130,12 +204,25 @@ export default function Upload() {
       // Step 3: tell backend the upload is done (it HEADs the object to verify)
       await api.post(`/videos/${presigned.video_id}/complete`);
 
+      // Step 4: best-effort thumbnail upload (don't fail the whole upload if it errors)
+      if (thumbBase64) {
+        try {
+          await api.put(`/videos/${presigned.video_id}/thumbnail`, {
+            thumbnail_base64: thumbBase64,
+          });
+        } catch (_) {
+          // ignore — video is uploaded; thumb can be re-set later
+        }
+      }
+
       setMsg("Upload complete!");
       setTitle("");
       setDesc("");
       setPickedUri(null);
       setPickedName("video.mp4");
       setPickedSize(null);
+      setThumbUri(null);
+      setThumbBase64(null);
       setNoAi(false);
       await refresh();
       setTimeout(() => router.push("/(tabs)/home"), 600);
@@ -193,6 +280,60 @@ export default function Upload() {
               <Text style={styles.dropSub}>Up to 2 min, max 2GB. MP4 recommended.</Text>
             )}
           </Pressable>
+
+          {pickedUri ? (
+            <View style={styles.thumbCard} testID="upload-thumb-card">
+              <View style={styles.thumbRow}>
+                <View style={styles.thumbPreviewWrap}>
+                  {thumbBusy ? (
+                    <View style={[styles.thumbPreview, styles.thumbPreviewLoading]}>
+                      <ActivityIndicator color={colors.brand} />
+                    </View>
+                  ) : thumbUri ? (
+                    <Image
+                      source={{ uri: thumbUri }}
+                      style={styles.thumbPreview}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={[styles.thumbPreview, styles.thumbPreviewLoading]}>
+                      <Ionicons name="image-outline" size={28} color={colors.onSurfaceTertiary} />
+                    </View>
+                  )}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.thumbTitle}>Thumbnail</Text>
+                  <Text style={styles.thumbHint}>
+                    {thumbBase64
+                      ? "Auto-generated from your video. Tap to choose your own."
+                      : "Pick a 16:9 image as the cover."}
+                  </Text>
+                  <View style={styles.thumbBtnRow}>
+                    <Pressable
+                      testID="upload-thumb-pick"
+                      onPress={pickCustomThumb}
+                      style={styles.thumbBtn}
+                    >
+                      <Ionicons name="image" size={14} color={colors.onBrand} />
+                      <Text style={styles.thumbBtnText}>Choose image</Text>
+                    </Pressable>
+                    {thumbBase64 ? (
+                      <Pressable
+                        testID="upload-thumb-regen"
+                        onPress={() => pickedUri && generateAutoThumb(pickedUri)}
+                        style={[styles.thumbBtn, styles.thumbBtnGhost]}
+                      >
+                        <Ionicons name="refresh" size={14} color={colors.onSurface} />
+                        <Text style={[styles.thumbBtnText, styles.thumbBtnTextGhost]}>
+                          Auto
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                </View>
+              </View>
+            </View>
+          ) : null}
 
           <TextInput
             testID="upload-title-input"
@@ -323,4 +464,37 @@ const styles = StyleSheet.create({
   submitText: { color: colors.onBrand, fontWeight: "800", fontSize: text.lg },
   error: { color: colors.error, backgroundColor: colors.errorBg, padding: spacing.md, borderRadius: radius.sm, marginBottom: spacing.sm },
   success: { color: colors.onBrand, backgroundColor: colors.success, padding: spacing.md, borderRadius: radius.sm, marginBottom: spacing.sm },
+  thumbCard: {
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  thumbRow: { flexDirection: "row", gap: spacing.md, alignItems: "flex-start" },
+  thumbPreviewWrap: {
+    width: 120,
+    aspectRatio: 16 / 9,
+    borderRadius: radius.sm,
+    overflow: "hidden",
+    backgroundColor: colors.surfaceTertiary,
+  },
+  thumbPreview: { width: "100%", height: "100%" },
+  thumbPreviewLoading: { alignItems: "center", justifyContent: "center" },
+  thumbTitle: { color: colors.onSurface, fontSize: text.base, fontWeight: "800" },
+  thumbHint: { color: colors.onSurfaceSecondary, fontSize: text.sm, marginTop: 2 },
+  thumbBtnRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm, flexWrap: "wrap" },
+  thumbBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: colors.brand,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+  },
+  thumbBtnGhost: { backgroundColor: colors.surfaceTertiary },
+  thumbBtnText: { color: colors.onBrand, fontWeight: "700", fontSize: text.sm },
+  thumbBtnTextGhost: { color: colors.onSurface },
 });

@@ -122,6 +122,22 @@ export default function Profile() {
             </Pressable>
           ) : null}
           <Pressable
+            testID="profile-edit-button"
+            onPress={() => router.push("/edit-profile")}
+            style={[
+              styles.action,
+              {
+                backgroundColor: colors.surfaceSecondary,
+                borderWidth: 1,
+                borderColor: colors.border,
+              },
+            ]}
+          >
+            <Text style={[styles.actionText, { color: colors.onSurface }]}>
+              Edit account
+            </Text>
+          </Pressable>
+          <Pressable
             testID="profile-logout-button"
             onPress={async () => {
               await logout();
