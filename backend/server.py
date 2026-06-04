@@ -815,8 +815,14 @@ async def get_video(video_id: str, user: dict = Depends(require_subscriber)):
     )
     if not v:
         raise HTTPException(status_code=404, detail="Not found")
-    await videos_col.update_one({"_id": video_id}, {"$inc": {"views": 1}})
-    v["views"] = int(v.get("views", 0)) + 1
+    # Count unique views — same user refreshing doesn't bump the count
+    viewed_by = v.get("viewed_by", []) or []
+    if user["_id"] not in viewed_by:
+        await videos_col.update_one(
+            {"_id": video_id},
+            {"$addToSet": {"viewed_by": user["_id"]}, "$inc": {"views": 1}},
+        )
+        v["views"] = int(v.get("views", 0)) + 1
     return video_to_public(v)
 
 

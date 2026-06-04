@@ -86,15 +86,13 @@ export default function VideoScreen() {
 
   const load = useCallback(async () => {
     if (!id) return;
+    setLoading(true);
+    // Load video metadata and comments independently so a failure in one
+    // does not prevent the other from rendering.
     try {
-      setLoading(true);
-      const [v, cs] = await Promise.all([
-        api.get<VideoDetail>(`/videos/${id}`),
-        api.get<Comment[]>(`/videos/${id}/comments`),
-      ]);
+      const v = await api.get<VideoDetail>(`/videos/${id}`);
       setVideo(v);
       setLikes(v.likes);
-      setComments(cs);
     } catch (e: any) {
       if (e instanceof ApiError && e.status === 402) {
         router.replace("/paywall");
@@ -103,6 +101,12 @@ export default function VideoScreen() {
       setVideo(null);
     } finally {
       setLoading(false);
+    }
+    try {
+      const cs = await api.get<Comment[]>(`/videos/${id}/comments`);
+      setComments(cs);
+    } catch {
+      setComments([]);
     }
   }, [id, router]);
 
