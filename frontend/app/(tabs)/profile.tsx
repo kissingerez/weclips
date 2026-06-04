@@ -7,7 +7,6 @@ import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import { VideoCard, VideoCardData } from "@/src/components/VideoCard";
 import { colors, radius, spacing, text } from "@/src/theme";
-
 export default function Profile() {
   const { user, logout, refresh } = useAuth();
   const router = useRouter();
@@ -87,6 +86,44 @@ export default function Profile() {
         </Pressable>
       </View>
 
+      <View style={styles.legalMenu} testID="profile-legal-menu">
+        {[
+          { key: "guidelines", label: "Community Guidelines" },
+          { key: "privacy", label: "Privacy Policy" },
+          { key: "terms", label: "Terms of Service" },
+          { key: "about", label: "About & Contact" },
+        ].map((item) => (
+          <Pressable
+            key={item.key}
+            testID={`profile-legal-${item.key}`}
+            onPress={() => router.push({ pathname: "/legal", params: { section: item.key } })}
+            style={styles.legalRow}
+          >
+            <Text style={styles.legalLabel}>{item.label}</Text>
+            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+          </Pressable>
+        ))}
+        <Pressable
+          testID="profile-delete-account"
+          onPress={() => {
+            if (typeof window !== "undefined" && window.confirm) {
+              if (!window.confirm("Permanently delete your account, all videos, and comments? This cannot be undone.")) return;
+            }
+            (async () => {
+              try {
+                await api.del("/auth/me");
+                await logout();
+                router.replace("/(auth)/login");
+              } catch {}
+            })();
+          }}
+          style={[styles.legalRow, { borderTopWidth: 1, borderTopColor: colors.border, marginTop: spacing.sm }]}
+        >
+          <Text style={[styles.legalLabel, { color: colors.error, fontWeight: "700" }]}>Delete account</Text>
+          <Ionicons name="trash" size={18} color={colors.error} />
+        </Pressable>
+      </View>
+
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Your videos</Text>
       </View>
@@ -146,6 +183,9 @@ const styles = StyleSheet.create({
   actionText: { color: colors.onBrand, fontWeight: "700" },
   sectionHeader: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.sm },
   sectionTitle: { color: colors.onSurface, fontSize: text.lg, fontWeight: "700" },
+  legalMenu: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md },
+  legalRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: spacing.md },
+  legalLabel: { color: colors.onSurface, fontSize: text.base },
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl },
   emptyTitle: { color: colors.onSurface, fontSize: text.lg, fontWeight: "700", marginTop: spacing.sm },
   emptySub: { color: colors.onSurfaceSecondary, fontSize: text.base, marginTop: spacing.xs, textAlign: "center" },

@@ -41,6 +41,13 @@ SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
 SENDGRID_SENDER_EMAIL = os.environ.get("SENDGRID_SENDER_EMAIL", "")
 PASSWORD_RESET_TTL_MIN = int(os.environ.get("PASSWORD_RESET_TTL_MIN", "15"))
 
+# Upload limits (cost-saving: 2-minute videos only)
+MAX_VIDEO_DURATION_SEC = int(os.environ.get("MAX_VIDEO_DURATION_SEC", "120"))
+MAX_VIDEO_SIZE_BYTES = int(os.environ.get("MAX_VIDEO_SIZE_BYTES", str(200 * 1024 * 1024)))  # 200 MB hard cap
+
+# Contact (shown in app + legal pages — required by Apple for UGC apps)
+SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "support@weclips.app")
+
 UPLOAD_DIR = ROOT_DIR / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 CHUNK_SIZE = 1024 * 1024  # 1 MB
@@ -74,6 +81,8 @@ videos_col = db["videos"]
 comments_col = db["comments"]
 rc_events_col = db["rc_events"]
 password_resets_col = db["password_resets"]
+reports_col = db["reports"]
+blocks_col = db["blocks"]
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer = HTTPBearer(auto_error=False)
@@ -657,6 +666,17 @@ async def complete_upload(video_id: str, user: dict = Depends(require_subscriber
     size = int(head.get("ContentLength", 0))
     if size <= 0:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
+    if size > MAX_VIDEO_SIZE_BYTES:
+        # Too large — delete from R2 + Mongo and refuse
+        try:
+            s3.delete_object(Bucket=R2_BUCKET, Key=v["r2_key"])
+        except Exception:
+            pass
+        await videos_col.delete_one({"_id": video_id})
+        raise HTTPException(
+            status_code=413,
+            detail=f"Video exceeds size limit ({MAX_VIDEO_SIZE_BYTES // (1024*1024)} MB). Videos must be ≤ {MAX_VIDEO_DURATION_SEC // 60} minutes.",
+        )
 
     await videos_col.update_one(
         {"_id": video_id},
@@ -986,6 +1006,93 @@ async def delete_comment(
         raise HTTPException(status_code=403, detail="Not allowed to delete this comment")
     await comments_col.delete_one({"_id": comment_id})
     return {"deleted": True, "id": comment_id}
+
+
+# --- Account deletion (Apple App Store guideline 5.1.1(v) — required) ---
+@api.delete("/auth/me")
+async def delete_account(user: dict = Depends(get_current_user)):
+    user_id = user["_id"]
+    # Delete user's R2 objects + DB rows
+    async for v in videos_col.find({"creator_id": user_id}, {"r2_key": 1, "storage": 1, "file_path": 1}):
+        if v.get("storage") == "r2" and v.get("r2_key") and s3 is not None:
+            try:
+                s3.delete_object(Bucket=R2_BUCKET, Key=v["r2_key"])
+            except Exception:
+                pass
+        elif v.get("file_path") and os.path.isfile(v["file_path"]):
+            try:
+                os.remove(v["file_path"])
+            except Exception:
+                pass
+    await videos_col.delete_many({"creator_id": user_id})
+    await comments_col.delete_many({"user_id": user_id})
+    await password_resets_col.delete_many({"user_id": user_id})
+    await blocks_col.delete_many({"$or": [{"blocker_id": user_id}, {"blocked_id": user_id}]})
+    await reports_col.delete_many({"reporter_id": user_id})
+    await users_col.delete_one({"_id": user_id})
+    return {"deleted": True}
+
+
+# --- Report content (Apple App Store guideline 1.2 — required) ---
+class ReportReq(BaseModel):
+    target_type: str = Field(pattern="^(video|comment|user)$")
+    target_id: str
+    reason: str = Field(min_length=1, max_length=500)
+
+
+@api.post("/reports")
+async def report_content(body: ReportReq, user: dict = Depends(get_current_user)):
+    await reports_col.insert_one(
+        {
+            "_id": str(uuid.uuid4()),
+            "reporter_id": user["_id"],
+            "target_type": body.target_type,
+            "target_id": body.target_id,
+            "reason": body.reason.strip(),
+            "status": "open",
+            "created_at": now_utc(),
+        }
+    )
+    return {"status": "ok"}
+
+
+# --- Block / unblock user (Apple App Store guideline 1.2 — required) ---
+@api.post("/users/{target_user_id}/block")
+async def block_user(target_user_id: str, user: dict = Depends(get_current_user)):
+    if target_user_id == user["_id"]:
+        raise HTTPException(status_code=400, detail="Cannot block yourself")
+    await blocks_col.update_one(
+        {"blocker_id": user["_id"], "blocked_id": target_user_id},
+        {"$setOnInsert": {"_id": str(uuid.uuid4()), "created_at": now_utc()}},
+        upsert=True,
+    )
+    return {"blocked": True}
+
+
+@api.delete("/users/{target_user_id}/block")
+async def unblock_user(target_user_id: str, user: dict = Depends(get_current_user)):
+    await blocks_col.delete_one({"blocker_id": user["_id"], "blocked_id": target_user_id})
+    return {"blocked": False}
+
+
+@api.get("/users/me/blocks")
+async def list_blocks(user: dict = Depends(get_current_user)):
+    cursor = blocks_col.find({"blocker_id": user["_id"]}, {"blocked_id": 1})
+    ids = []
+    async for b in cursor:
+        ids.append(b["blocked_id"])
+    return {"blocked_user_ids": ids}
+
+
+# --- Config endpoint (legal pages read this) ---
+@api.get("/config")
+async def get_config():
+    return {
+        "app_name": "WeClips",
+        "support_email": SUPPORT_EMAIL,
+        "max_video_duration_sec": MAX_VIDEO_DURATION_SEC,
+        "max_video_size_bytes": MAX_VIDEO_SIZE_BYTES,
+    }
 
 
 # --- Mount ---

@@ -59,6 +59,15 @@ export default function Upload() {
     });
     if (result.canceled || !result.assets?.[0]) return;
     const asset = result.assets[0];
+    const dur = (asset as any).duration as number | undefined; // milliseconds (RN) or seconds (web)
+    if (dur && dur > 0) {
+      // expo-image-picker returns seconds on web, milliseconds on native — normalise to seconds
+      const seconds = dur > 1000 ? dur / 1000 : dur;
+      if (seconds > 120) {
+        setErr(`Videos must be 2 minutes or less. This clip is ${Math.round(seconds)}s.`);
+        return;
+      }
+    }
     setPickedUri(asset.uri);
     const inferredName =
       (asset as any).fileName ||
@@ -179,7 +188,7 @@ export default function Upload() {
                 {pickedSize ? `  ·  ${formatBytes(pickedSize)}` : ""}
               </Text>
             ) : (
-              <Text style={styles.dropSub}>Any size, any length. MP4 recommended.</Text>
+              <Text style={styles.dropSub}>Up to 2 minutes. MP4 recommended.</Text>
             )}
           </Pressable>
 
