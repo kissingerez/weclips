@@ -696,7 +696,7 @@ async def complete_upload(video_id: str, user: dict = Depends(require_subscriber
         await videos_col.delete_one({"_id": video_id})
         raise HTTPException(
             status_code=413,
-            detail=f"Video exceeds size limit ({MAX_VIDEO_SIZE_BYTES // (1024*1024)} MB). Videos must be ≤ {MAX_VIDEO_DURATION_SEC // 60} minutes.",
+            detail=f"File too large ({size // (1024*1024)} MB). Max {MAX_VIDEO_SIZE_BYTES // (1024*1024)} MB per upload. Try lowering resolution.",
         )
 
     await videos_col.update_one(
