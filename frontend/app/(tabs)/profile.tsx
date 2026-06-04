@@ -356,7 +356,7 @@ const styles = StyleSheet.create({
   },
   subOn: { backgroundColor: colors.brand },
   subOff: { backgroundColor: colors.surfaceTertiary },
-  founderBadge: { backgroundColor: "#000000", marginLeft: spacing.xs },
+  founderBadge: { backgroundColor: "#FFB300", marginLeft: spacing.xs },
   statusText: { fontSize: 11, fontWeight: "700" },
   actions: {
     flexDirection: "row",
