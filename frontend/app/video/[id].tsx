@@ -30,6 +30,7 @@ type VideoDetail = {
 };
 type Comment = {
   id: string;
+  user_id: string;
   user_name: string;
   text: string;
   created_at: string;
@@ -128,6 +129,17 @@ export default function VideoScreen() {
     } catch {}
   };
 
+  const deleteComment = async (commentId: string) => {
+    const prev = comments;
+    setComments(comments.filter((c) => c.id !== commentId));
+    try {
+      await api.del(`/videos/${id}/comments/${commentId}`);
+    } catch (e) {
+      // Revert on failure
+      setComments(prev);
+    }
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.root}>
@@ -204,12 +216,27 @@ export default function VideoScreen() {
           }
           data={comments}
           keyExtractor={(c) => c.id}
-          renderItem={({ item }) => (
-            <View style={styles.commentItem}>
-              <Text style={styles.commentAuthor}>{item.user_name}</Text>
-              <Text style={styles.commentText}>{item.text}</Text>
-            </View>
-          )}
+          renderItem={({ item }) => {
+            const canDelete = !!user && (item.user_id === user.id || video?.creator_id === user.id);
+            return (
+              <View style={styles.commentItem}>
+                <View style={styles.commentHead}>
+                  <Text style={styles.commentAuthor}>{item.user_name}</Text>
+                  {canDelete && (
+                    <Pressable
+                      testID={`comment-delete-${item.id}`}
+                      onPress={() => deleteComment(item.id)}
+                      hitSlop={10}
+                      style={styles.commentDelete}
+                    >
+                      <Ionicons name="trash-outline" size={16} color={colors.onSurfaceSecondary} />
+                    </Pressable>
+                  )}
+                </View>
+                <Text style={styles.commentText}>{item.text}</Text>
+              </View>
+            );
+          }}
           contentContainerStyle={{ paddingBottom: spacing.xxxl }}
           ListEmptyComponent={
             <Text style={styles.noComments}>No comments yet. Be the first.</Text>
@@ -237,7 +264,9 @@ const styles = StyleSheet.create({
   commentInput: { flex: 1, backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderWidth: 1, borderColor: colors.border },
   commentBtn: { backgroundColor: colors.brand, paddingHorizontal: spacing.lg, justifyContent: "center", borderRadius: radius.md },
   commentItem: { paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.divider },
-  commentAuthor: { color: colors.onSurface, fontWeight: "700", marginBottom: 2 },
+  commentHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 2 },
+  commentAuthor: { color: colors.onSurface, fontWeight: "700" },
+  commentDelete: { padding: 4 },
   commentText: { color: colors.onSurfaceSecondary, fontSize: text.base },
   noComments: { color: colors.onSurfaceTertiary, padding: spacing.lg, textAlign: "center" },
   errText: { color: colors.onSurface, fontSize: text.lg, marginBottom: spacing.md },

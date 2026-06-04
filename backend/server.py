@@ -840,6 +840,25 @@ async def add_comment(video_id: str, body: CommentReq, user: dict = Depends(requ
     )
 
 
+@api.delete("/videos/{video_id}/comments/{comment_id}")
+async def delete_comment(
+    video_id: str,
+    comment_id: str,
+    user: dict = Depends(require_subscriber),
+):
+    c = await comments_col.find_one({"_id": comment_id, "video_id": video_id})
+    if not c:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    # Allow if the user authored the comment OR owns the video (creator moderation)
+    video = await videos_col.find_one({"_id": video_id}, {"creator_id": 1})
+    is_author = c["user_id"] == user["_id"]
+    is_owner = bool(video) and video.get("creator_id") == user["_id"]
+    if not (is_author or is_owner):
+        raise HTTPException(status_code=403, detail="Not allowed to delete this comment")
+    await comments_col.delete_one({"_id": comment_id})
+    return {"deleted": True, "id": comment_id}
+
+
 # --- Mount ---
 app.include_router(api)
 app.add_middleware(
