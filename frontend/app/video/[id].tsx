@@ -219,7 +219,7 @@ export default function VideoScreen() {
             ref={videoRef}
             style={styles.player}
             player={player}
-            fullscreenOptions={{ enable: true, autoExitOnRotate: false, orientation: "default" }}
+            fullscreenOptions={{ enable: true }}
             allowsPictureInPicture
             nativeControls
             contentFit="contain"
@@ -229,7 +229,18 @@ export default function VideoScreen() {
           </Pressable>
           <Pressable
             testID="video-fullscreen-button"
-            onPress={goFullscreen}
+            onPress={() => {
+              try {
+                if (videoRef.current?.enterFullscreen) {
+                  videoRef.current.enterFullscreen();
+                } else if (typeof document !== "undefined") {
+                  // Web fallback — request fullscreen on the player element
+                  const el: any = document.querySelector('[data-testid="video-player"]') || document.querySelector("video");
+                  if (el?.requestFullscreen) el.requestFullscreen();
+                  else if (el?.webkitRequestFullscreen) el.webkitRequestFullscreen();
+                }
+              } catch {}
+            }}
             style={styles.fsIcon}
             hitSlop={10}
           >

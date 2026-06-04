@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -161,12 +161,29 @@ import { colors, radius, spacing, text } from "@/src/theme";export default funct
           <Text style={styles.emptySub}>Upload your first video from the Upload tab.</Text>
         </View>
       ) : (
-        <FlatList
-          testID="profile-video-list"
-          data={videos}
-          keyExtractor={(v) => v.id}
-          renderItem={({ item }) => (
-            <View>
+        <ScrollView
+          testID="profile-scroll"
+          contentContainerStyle={{ paddingBottom: spacing.xxxl }}
+          showsVerticalScrollIndicator={true}
+        >
+          {bannerAndHeaderAndActionsAndLegalAndList()}
+        </ScrollView>
+      )}
+    </SafeAreaView>
+  );
+
+  function bannerAndHeaderAndActionsAndLegalAndList() {
+    return (
+      <>
+        {videos.length === 0 ? (
+          <View style={[styles.center, { paddingVertical: spacing.xxl }]} testID="profile-empty">
+            <Ionicons name="film-outline" size={48} color={colors.onSurfaceTertiary} />
+            <Text style={styles.emptyTitle}>No uploads yet</Text>
+            <Text style={styles.emptySub}>Upload your first video from the Upload tab.</Text>
+          </View>
+        ) : (
+          videos.map((item) => (
+            <View key={item.id}>
               <VideoCard video={item} />
               <Pressable
                 testID={`profile-delete-video-${item.id}`}
@@ -188,10 +205,15 @@ import { colors, radius, spacing, text } from "@/src/theme";export default funct
                 <Text style={styles.deleteVideoText}>Delete</Text>
               </Pressable>
             </View>
-          )}
-          contentContainerStyle={{ paddingTop: spacing.md, paddingBottom: spacing.xxxl }}
-        />
-      )}
+          ))
+        )}
+      </>
+    );
+  }
+}
+
+function _unused() {
+  return null;
     </SafeAreaView>
   );
 }
