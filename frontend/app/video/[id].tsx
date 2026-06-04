@@ -272,6 +272,34 @@ export default function VideoScreen() {
                   <Ionicons name={liked ? "heart" : "heart-outline"} size={20} color={liked ? colors.brand : colors.onSurface} />
                   <Text style={styles.actionLabel}>{likes}</Text>
                 </Pressable>
+                {user?.is_founder && video.creator_id !== user.id ? (
+                  <Pressable
+                    testID="video-founder-delete"
+                    onPress={() => {
+                      if (typeof window !== "undefined" && window.confirm) {
+                        if (
+                          !window.confirm(
+                            `FOUNDER ACTION\n\nDelete "${video.title}" from WeClips?\n\nThis cannot be undone.`
+                          )
+                        )
+                          return;
+                      }
+                      (async () => {
+                        try {
+                          await api.del(`/videos/${video.id}`);
+                          router.back();
+                        } catch (e: any) {
+                          // best-effort feedback
+                          alert(e?.message || "Delete failed");
+                        }
+                      })();
+                    }}
+                    style={styles.founderDeleteBtn}
+                  >
+                    <Ionicons name="shield" size={14} color={colors.onBrand} />
+                    <Text style={styles.founderDeleteText}>Founder · Delete</Text>
+                  </Pressable>
+                ) : null}
               </View>
 
               {video.description ? (
@@ -296,7 +324,7 @@ export default function VideoScreen() {
           data={comments}
           keyExtractor={(c) => c.id}
           renderItem={({ item }) => {
-            const canDelete = !!user && (item.user_id === user.id || video?.creator_id === user.id);
+            const canDelete = !!user && (item.user_id === user.id || video?.creator_id === user.id || !!user.is_founder);
             return (
               <View style={styles.commentItem}>
                 <View style={styles.commentHead}>
@@ -343,6 +371,8 @@ const styles = StyleSheet.create({
   sub: { color: colors.onSurfaceSecondary, fontSize: text.sm, marginTop: 4 },
   actionRow: { flexDirection: "row", marginTop: spacing.md, gap: spacing.lg },
   actionBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors.surfaceSecondary, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border },
+  founderDeleteBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#000000", paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.pill },
+  founderDeleteText: { color: colors.onBrand, fontWeight: "800", fontSize: text.sm },
   actionLabel: { color: colors.onSurface, fontWeight: "700" },
   desc: { color: colors.onSurfaceSecondary, marginTop: spacing.md, fontSize: text.base, lineHeight: 20 },
   commentInputRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.lg },

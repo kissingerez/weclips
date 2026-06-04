@@ -140,9 +140,17 @@ export default function Profile() {
                     },
                   ]}
                 >
-                  {user?.is_subscribed ? "Premium · Active" : "Free"}
+                  {user?.is_subscribed ? "Member · Active" : "Free"}
                 </Text>
               </View>
+              {user?.is_founder ? (
+                <View style={[styles.statusBadge, styles.founderBadge]}>
+                  <Ionicons name="shield-checkmark" size={12} color={colors.onBrand} />
+                  <Text style={[styles.statusText, { color: colors.onBrand }]}>
+                    Founder
+                  </Text>
+                </View>
+              ) : null}
             </View>
           </View>
         </View>
@@ -154,7 +162,7 @@ export default function Profile() {
               onPress={() => router.push("/paywall")}
               style={[styles.action, { backgroundColor: colors.brand }]}
             >
-              <Text style={styles.actionText}>Go Premium · $1/mo</Text>
+              <Text style={styles.actionText}>Become a Member · $1/mo</Text>
             </Pressable>
           ) : null}
           <Pressable
@@ -348,6 +356,7 @@ const styles = StyleSheet.create({
   },
   subOn: { backgroundColor: colors.brand },
   subOff: { backgroundColor: colors.surfaceTertiary },
+  founderBadge: { backgroundColor: "#000000", marginLeft: spacing.xs },
   statusText: { fontSize: 11, fontWeight: "700" },
   actions: {
     flexDirection: "row",

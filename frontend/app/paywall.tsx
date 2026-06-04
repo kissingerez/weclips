@@ -76,10 +76,10 @@ export default function Paywall() {
           await api.post("/subscription/sync");
         } catch {}
         await refresh();
-        setInfo("You're in! Premium activated.");
+        setInfo("You're in! Membership activated.");
         setTimeout(() => router.back(), 800);
       } else {
-        setErr("Purchase didn't unlock premium. Try Restore Purchases.");
+        setErr("Purchase didn't unlock membership. Try Restore Purchases.");
       }
     } catch (e: any) {
       if (e?.userCancelled) {
@@ -155,7 +155,7 @@ export default function Paywall() {
         </Pressable>
 
         <View style={styles.content}>
-          <Text style={styles.kicker}>GO PREMIUM</Text>
+          <Text style={styles.kicker}>BECOME A MEMBER</Text>
           <Text style={styles.headline} testID="paywall-headline">
             {priceLabel.split("/")[0].trim()}
             <Text style={styles.headlineSmall}>

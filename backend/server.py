@@ -127,6 +127,7 @@ class UserPublic(BaseModel):
     followers: int = 0
     following: int = 0
     is_subscribed: bool
+    is_founder: bool = False
     subscription_status: str
     created_at: datetime
     deletion_pending: bool = False
@@ -329,6 +330,7 @@ def user_to_public(u: dict, *, followers: int = 0, following: int = 0) -> UserPu
         followers=followers,
         following=following,
         is_subscribed=bool(u.get("is_subscribed", False)),
+        is_founder=bool(u.get("is_founder", False)),
         subscription_status=u.get("subscription_status", "none"),
         created_at=u["created_at"],
         deletion_pending=deletion_pending,
@@ -1626,7 +1628,8 @@ async def delete_comment(
     video = await videos_col.find_one({"_id": video_id}, {"creator_id": 1})
     is_author = c["user_id"] == user["_id"]
     is_owner = bool(video) and video.get("creator_id") == user["_id"]
-    if not (is_author or is_owner):
+    is_founder = bool(user.get("is_founder"))
+    if not (is_author or is_owner or is_founder):
         raise HTTPException(status_code=403, detail="Not allowed to delete this comment")
     await comments_col.delete_one({"_id": comment_id})
     return {"deleted": True, "id": comment_id}
@@ -1664,7 +1667,9 @@ async def delete_video(video_id: str, user: dict = Depends(get_current_user)):
     v = await videos_col.find_one({"_id": video_id})
     if not v:
         raise HTTPException(status_code=404, detail="Video not found")
-    if v.get("creator_id") != user["_id"]:
+    is_owner = v.get("creator_id") == user["_id"]
+    is_founder = bool(user.get("is_founder"))
+    if not (is_owner or is_founder):
         raise HTTPException(status_code=403, detail="Only the creator can delete this video")
     # Remove R2 object (if any)
     if v.get("storage") == "r2" and v.get("r2_key") and s3 is not None:
