@@ -47,24 +47,36 @@ export default function VideoScreen() {
   const [newComment, setNewComment] = useState("");
   const [streamUrl, setStreamUrl] = useState<string>("");
 
-  // Build a stream URL with the JWT in the query string so the native
-  // player can authenticate range requests without custom headers.
+  // Resolve a stream URL for the player:
+  //  - For R2-backed videos this is a presigned Cloudflare URL with Range support.
+  //  - For legacy disk videos the backend returns a relative path; we append our JWT.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       if (!id) return;
-      const tok = await tokenStorage.get();
-      if (cancelled) return;
-      setStreamUrl(
-        tok
-          ? `${API_BASE}/videos/${id}/stream?token=${encodeURIComponent(tok)}`
-          : `${API_BASE}/videos/${id}/stream`
-      );
+      try {
+        const tok = await tokenStorage.get();
+        const resp = await api.get<{ stream_url: string; legacy?: boolean }>(
+          `/videos/${id}/stream-url`
+        );
+        if (cancelled) return;
+        let url = resp.stream_url;
+        if (resp.legacy && tok) {
+          const sep = url.includes("?") ? "&" : "?";
+          url = `${url}${sep}token=${encodeURIComponent(tok)}`;
+          if (url.startsWith("/")) url = `${API_BASE.replace(/\/api$/, "")}${url}`;
+        }
+        setStreamUrl(url);
+      } catch (e: any) {
+        if (e instanceof ApiError && e.status === 402) {
+          router.replace("/paywall");
+        }
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, router]);
 
   const player = useVideoPlayer(streamUrl || null, (p) => {
     p.loop = false;

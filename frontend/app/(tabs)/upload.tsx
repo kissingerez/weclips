@@ -15,7 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useAuth } from "@/src/lib/auth";
-import { API_BASE } from "@/src/lib/api";
+import { API_BASE, api } from "@/src/lib/api";
 import { tokenStorage } from "@/src/lib/tokenStorage";
 import { colors, radius, spacing, text } from "@/src/theme";
 
@@ -81,49 +81,43 @@ export default function Upload() {
     }
     setUploading(true);
     try {
-      const form = new FormData();
-      form.append("title", title.trim());
-      form.append("description", desc.trim());
-      form.append("mime_type", pickedMime);
-      form.append("no_ai_confirmed", "true");
-
-      if (Platform.OS === "web") {
-        // Pull the blob from the picker's blob: URL and attach directly
-        const resp = await fetch(pickedUri);
-        const blob = await resp.blob();
-        form.append("file", blob, pickedName);
-      } else {
-        // React Native: pass {uri, name, type} so the network layer streams from disk
-        form.append("file", {
-          uri: pickedUri,
-          name: pickedName,
-          type: pickedMime,
-        } as any);
-      }
-
-      const tok = await tokenStorage.get();
-      const res = await fetch(`${API_BASE}/videos`, {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          ...(tok ? { Authorization: `Bearer ${tok}` } : {}),
-        },
-        body: form as any,
+      // Step 1: ask backend for a presigned PUT URL
+      const presigned = await api.post<{
+        video_id: string;
+        upload_url: string;
+        headers: Record<string, string>;
+        object_key: string;
+        expires_in: number;
+      }>("/videos/upload-url", {
+        title: title.trim(),
+        description: desc.trim(),
+        mime_type: pickedMime,
+        no_ai_confirmed: true,
       });
 
-      if (res.status === 402) {
-        router.push("/paywall");
-        return;
+      // Step 2: PUT the file directly to R2 (bypasses our API)
+      const putHeaders: Record<string, string> = { ...presigned.headers };
+      let putBody: any;
+      if (Platform.OS === "web") {
+        const resp = await fetch(pickedUri);
+        putBody = await resp.blob();
+      } else {
+        // React Native: send the file as a Blob via fetch (RN supports {uri} -> Blob upload)
+        const resp = await fetch(pickedUri);
+        putBody = await resp.blob();
       }
-      if (!res.ok) {
-        const t = await res.text();
-        let detail = `Upload failed (${res.status})`;
-        try {
-          const j = JSON.parse(t);
-          detail = j?.detail || detail;
-        } catch {}
-        throw new Error(detail);
+      const putRes = await fetch(presigned.upload_url, {
+        method: "PUT",
+        headers: putHeaders,
+        body: putBody,
+      });
+      if (!putRes.ok) {
+        const detail = await putRes.text().catch(() => "");
+        throw new Error(`Cloud upload failed (${putRes.status}). ${detail.slice(0, 120)}`);
       }
+
+      // Step 3: tell backend the upload is done (it HEADs the object to verify)
+      await api.post(`/videos/${presigned.video_id}/complete`);
 
       setMsg("Upload complete!");
       setTitle("");
@@ -135,7 +129,12 @@ export default function Upload() {
       await refresh();
       setTimeout(() => router.push("/(tabs)/home"), 600);
     } catch (e: any) {
-      setErr(e?.message ?? "Upload failed");
+      const m = e?.message ?? "Upload failed";
+      if (typeof m === "string" && m.includes("(402)")) {
+        router.push("/paywall");
+        return;
+      }
+      setErr(m);
     } finally {
       setUploading(false);
     }

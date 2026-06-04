@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import List, Optional
 
 import httpx
+import boto3
+from botocore.config import Config as BotoConfig
 from dotenv import load_dotenv
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header, Request, UploadFile, File, Form
 from fastapi.responses import Response, FileResponse, StreamingResponse
@@ -36,6 +38,28 @@ RC_ENTITLEMENT = os.environ.get("REVENUECAT_ENTITLEMENT_ID", "premium")
 UPLOAD_DIR = ROOT_DIR / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 CHUNK_SIZE = 1024 * 1024  # 1 MB
+
+# --- R2 (S3-compatible) ---
+R2_ENDPOINT_URL = os.environ.get("R2_ENDPOINT_URL", "")
+R2_ACCESS_KEY_ID = os.environ.get("R2_ACCESS_KEY_ID", "")
+R2_SECRET_ACCESS_KEY = os.environ.get("R2_SECRET_ACCESS_KEY", "")
+R2_BUCKET = os.environ.get("R2_BUCKET", "")
+R2_PRESIGN_UPLOAD_TTL = int(os.environ.get("R2_PRESIGN_UPLOAD_TTL", "900"))
+R2_PRESIGN_STREAM_TTL = int(os.environ.get("R2_PRESIGN_STREAM_TTL", "3600"))
+
+s3 = None
+if R2_ENDPOINT_URL and R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY and R2_BUCKET:
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=R2_ENDPOINT_URL,
+        aws_access_key_id=R2_ACCESS_KEY_ID,
+        aws_secret_access_key=R2_SECRET_ACCESS_KEY,
+        region_name="auto",
+        config=BotoConfig(signature_version="s3v4", s3={"addressing_style": "path"}),
+    )
+    logger.info("R2 client configured for bucket %s", R2_BUCKET)
+else:
+    logger.warning("R2 not configured; falling back to local disk uploads")
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
@@ -409,6 +433,111 @@ async def revenuecat_webhook(
 
 
 # --- Routes: Videos ---
+class UploadUrlReq(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=2000)
+    mime_type: str = Field(default="video/mp4")
+    no_ai_confirmed: bool
+
+
+class UploadUrlResp(BaseModel):
+    video_id: str
+    upload_url: str
+    object_key: str
+    headers: dict
+    expires_in: int
+
+
+def _r2_key_for(video_id: str, mime_type: str) -> str:
+    ext = "mp4"
+    if mime_type and "/" in mime_type:
+        candidate = mime_type.split("/", 1)[1].lower()
+        # keep it short and alpha
+        candidate = "".join(c for c in candidate if c.isalnum())[:5]
+        if candidate:
+            ext = candidate
+    return f"videos/{video_id}.{ext}"
+
+
+@api.post("/videos/upload-url", response_model=UploadUrlResp)
+async def create_upload_url(body: UploadUrlReq, user: dict = Depends(require_subscriber)):
+    if not body.no_ai_confirmed:
+        raise HTTPException(status_code=400, detail="You must confirm the WeClips content policy")
+    if s3 is None:
+        raise HTTPException(status_code=500, detail="Cloud storage not configured")
+
+    video_id = str(uuid.uuid4())
+    object_key = _r2_key_for(video_id, body.mime_type)
+
+    try:
+        url = s3.generate_presigned_url(
+            ClientMethod="put_object",
+            Params={
+                "Bucket": R2_BUCKET,
+                "Key": object_key,
+                "ContentType": body.mime_type or "video/mp4",
+            },
+            ExpiresIn=R2_PRESIGN_UPLOAD_TTL,
+        )
+    except Exception as e:
+        logger.exception("R2 presign upload failed")
+        raise HTTPException(status_code=500, detail=f"Storage error: {e}")
+
+    await videos_col.insert_one(
+        {
+            "_id": video_id,
+            "title": body.title.strip(),
+            "description": body.description.strip(),
+            "mime_type": body.mime_type or "video/mp4",
+            "storage": "r2",
+            "r2_key": object_key,
+            "file_size": 0,
+            "upload_complete": False,
+            "creator_id": user["_id"],
+            "creator_name": user["display_name"],
+            "views": 0,
+            "likes": 0,
+            "liked_by": [],
+            "created_at": now_utc(),
+        }
+    )
+    return UploadUrlResp(
+        video_id=video_id,
+        upload_url=url,
+        object_key=object_key,
+        headers={"Content-Type": body.mime_type or "video/mp4"},
+        expires_in=R2_PRESIGN_UPLOAD_TTL,
+    )
+
+
+@api.post("/videos/{video_id}/complete", response_model=VideoPublic)
+async def complete_upload(video_id: str, user: dict = Depends(require_subscriber)):
+    v = await videos_col.find_one({"_id": video_id})
+    if not v or v.get("creator_id") != user["_id"]:
+        raise HTTPException(status_code=404, detail="Video not found")
+    if v.get("upload_complete"):
+        return video_to_public(v)
+    if s3 is None or v.get("storage") != "r2":
+        raise HTTPException(status_code=400, detail="Not an R2-backed upload")
+
+    # Verify file actually exists in R2 and capture its size
+    try:
+        head = s3.head_object(Bucket=R2_BUCKET, Key=v["r2_key"])
+    except Exception:
+        raise HTTPException(status_code=400, detail="Upload not found in storage. Please retry.")
+    size = int(head.get("ContentLength", 0))
+    if size <= 0:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    await videos_col.update_one(
+        {"_id": video_id},
+        {"$set": {"upload_complete": True, "file_size": size}},
+    )
+    v["upload_complete"] = True
+    v["file_size"] = size
+    return video_to_public(v)
+
+
 @api.post("/videos", response_model=VideoPublic)
 async def upload_video(
     title: str = Form(..., min_length=1, max_length=120),
@@ -478,15 +607,16 @@ async def upload_video(
 
 @api.get("/videos", response_model=List[VideoPublic])
 async def list_videos(q: Optional[str] = None, limit: int = 50):
-    query: dict = {}
+    query: dict = {"$or": [{"upload_complete": True}, {"upload_complete": {"$exists": False}}]}
     if q:
-        query = {
+        text_filter = {
             "$or": [
                 {"title": {"$regex": q, "$options": "i"}},
                 {"description": {"$regex": q, "$options": "i"}},
                 {"creator_name": {"$regex": q, "$options": "i"}},
             ]
         }
+        query = {"$and": [query, text_filter]}
     cursor = videos_col.find(
         query, {"content_base64": 0, "thumbnail_base64": 0, "liked_by": 0}
     ).sort("created_at", -1).limit(min(limit, 100))
@@ -518,6 +648,33 @@ async def get_video(video_id: str, user: dict = Depends(require_subscriber)):
     await videos_col.update_one({"_id": video_id}, {"$inc": {"views": 1}})
     v["views"] = int(v.get("views", 0)) + 1
     return video_to_public(v)
+
+
+@api.get("/videos/{video_id}/stream-url")
+async def get_stream_url(video_id: str, user: dict = Depends(require_subscriber)):
+    v = await videos_col.find_one(
+        {"_id": video_id},
+        {"storage": 1, "r2_key": 1, "file_path": 1, "content_base64": 1, "mime_type": 1},
+    )
+    if not v:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    # New R2-backed videos
+    if v.get("storage") == "r2" and v.get("r2_key") and s3 is not None:
+        try:
+            url = s3.generate_presigned_url(
+                ClientMethod="get_object",
+                Params={"Bucket": R2_BUCKET, "Key": v["r2_key"]},
+                ExpiresIn=R2_PRESIGN_STREAM_TTL,
+            )
+            return {"stream_url": url, "expires_in": R2_PRESIGN_STREAM_TTL}
+        except Exception as e:
+            logger.exception("R2 presign GET failed")
+            raise HTTPException(status_code=500, detail=f"Storage error: {e}")
+
+    # Legacy disk- or base64-backed videos: route through our own stream endpoint with token
+    # (the client will append the JWT as ?token=)
+    return {"stream_url": f"/api/videos/{video_id}/stream", "expires_in": 0, "legacy": True}
 
 
 @api.get("/videos/{video_id}/stream")
