@@ -115,6 +115,8 @@ class UserPublic(BaseModel):
     is_subscribed: bool
     subscription_status: str
     created_at: datetime
+    deletion_pending: bool = False
+    deletion_expires_at: Optional[datetime] = None
 
 
 class VideoUploadReq(BaseModel):
@@ -236,6 +238,13 @@ async def require_subscriber_flexible(
 
 
 def user_to_public(u: dict) -> UserPublic:
+    deleted_at = u.get("deleted_at")
+    deletion_pending = bool(deleted_at)
+    deletion_expires_at = None
+    if deleted_at:
+        if deleted_at.tzinfo is None:
+            deleted_at = deleted_at.replace(tzinfo=timezone.utc)
+        deletion_expires_at = deleted_at + timedelta(days=int(os.environ.get("DELETION_GRACE_DAYS", "30")))
     return UserPublic(
         id=u["_id"],
         email=u["email"],
@@ -243,6 +252,8 @@ def user_to_public(u: dict) -> UserPublic:
         is_subscribed=bool(u.get("is_subscribed", False)),
         subscription_status=u.get("subscription_status", "none"),
         created_at=u["created_at"],
+        deletion_pending=deletion_pending,
+        deletion_expires_at=deletion_expires_at,
     )
 
 
@@ -296,6 +307,16 @@ async def login(body: LoginReq):
     user = await users_col.find_one({"email": email})
     if not user or not verify_password(body.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
+    # If a previous soft-delete is past the grace period, hard-delete now and
+    # treat the account as gone.
+    deleted_at = user.get("deleted_at")
+    if deleted_at:
+        if deleted_at.tzinfo is None:
+            deleted_at = deleted_at.replace(tzinfo=timezone.utc)
+        if deleted_at + timedelta(days=DELETION_GRACE_DAYS) < now_utc():
+            await _hard_delete_user_data(user["_id"])
+            raise HTTPException(status_code=401, detail="Account has been permanently deleted")
+    # Otherwise allow login (so the user can restore within grace period)
     return TokenResp(access_token=create_access_token(user["_id"]))
 
 
@@ -1008,11 +1029,12 @@ async def delete_comment(
     return {"deleted": True, "id": comment_id}
 
 
-# --- Account deletion (Apple App Store guideline 5.1.1(v) — required) ---
-@api.delete("/auth/me")
-async def delete_account(user: dict = Depends(get_current_user)):
-    user_id = user["_id"]
-    # Delete user's R2 objects + DB rows
+# --- Account deletion with 30-day grace period (Apple guideline 5.1.1(v)) ---
+DELETION_GRACE_DAYS = int(os.environ.get("DELETION_GRACE_DAYS", "30"))
+
+
+async def _hard_delete_user_data(user_id: str) -> None:
+    """Actually wipe a user's data. Called after the grace period expires."""
     async for v in videos_col.find({"creator_id": user_id}, {"r2_key": 1, "storage": 1, "file_path": 1}):
         if v.get("storage") == "r2" and v.get("r2_key") and s3 is not None:
             try:
@@ -1030,7 +1052,35 @@ async def delete_account(user: dict = Depends(get_current_user)):
     await blocks_col.delete_many({"$or": [{"blocker_id": user_id}, {"blocked_id": user_id}]})
     await reports_col.delete_many({"reporter_id": user_id})
     await users_col.delete_one({"_id": user_id})
-    return {"deleted": True}
+
+
+@api.delete("/auth/me")
+async def delete_account(user: dict = Depends(get_current_user)):
+    """Soft-delete: marks the account with `deleted_at`. The user can restore it
+    within 30 days. After that, a background sweep (or the next login attempt
+    that touches this user) hard-deletes everything."""
+    await users_col.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"deleted_at": now_utc()}},
+    )
+    return {
+        "deleted": True,
+        "soft_delete": True,
+        "grace_days": DELETION_GRACE_DAYS,
+        "permanent_after": now_utc() + timedelta(days=DELETION_GRACE_DAYS),
+    }
+
+
+@api.post("/auth/restore")
+async def restore_account(user: dict = Depends(get_current_user)):
+    """Cancels a pending deletion if still within the grace period."""
+    if not user.get("deleted_at"):
+        return {"restored": False, "reason": "Account is not pending deletion"}
+    await users_col.update_one(
+        {"_id": user["_id"]},
+        {"$unset": {"deleted_at": ""}},
+    )
+    return {"restored": True}
 
 
 # --- Report content (Apple App Store guideline 1.2 — required) ---

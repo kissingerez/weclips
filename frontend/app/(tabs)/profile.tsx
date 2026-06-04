@@ -34,6 +34,30 @@ export default function Profile() {
 
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>
+      {user?.deletion_pending ? (
+        <View style={styles.deletionBanner} testID="profile-deletion-banner">
+          <Ionicons name="warning" size={18} color={colors.error} />
+          <Text style={styles.deletionText}>
+            Account scheduled for deletion
+            {user.deletion_expires_at
+              ? ` on ${new Date(user.deletion_expires_at).toLocaleDateString()}`
+              : ""}
+            .
+          </Text>
+          <Pressable
+            testID="profile-restore-account"
+            onPress={async () => {
+              try {
+                await api.post("/auth/restore");
+                await refresh();
+              } catch {}
+            }}
+            style={styles.restoreBtn}
+          >
+            <Text style={styles.restoreText}>Restore</Text>
+          </Pressable>
+        </View>
+      ) : null}
       <View style={styles.header}>
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>{(user?.display_name?.[0] || "?").toUpperCase()}</Text>
@@ -107,13 +131,12 @@ export default function Profile() {
           testID="profile-delete-account"
           onPress={() => {
             if (typeof window !== "undefined" && window.confirm) {
-              if (!window.confirm("Permanently delete your account, all videos, and comments? This cannot be undone.")) return;
+              if (!window.confirm("Delete your account? You have 30 days to change your mind by signing back in and tapping Restore. After 30 days everything is permanently erased.")) return;
             }
             (async () => {
               try {
                 await api.del("/auth/me");
-                await logout();
-                router.replace("/(auth)/login");
+                await refresh();
               } catch {}
             })();
           }}
@@ -186,6 +209,10 @@ const styles = StyleSheet.create({
   legalMenu: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md },
   legalRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: spacing.md },
   legalLabel: { color: colors.onSurface, fontSize: text.base },
+  deletionBanner: { flexDirection: "row", alignItems: "center", gap: spacing.sm, backgroundColor: colors.errorBg, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
+  deletionText: { flex: 1, color: colors.error, fontSize: text.sm, fontWeight: "600" },
+  restoreBtn: { backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.sm },
+  restoreText: { color: colors.onBrand, fontWeight: "700", fontSize: text.sm },
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl },
   emptyTitle: { color: colors.onSurface, fontSize: text.lg, fontWeight: "700", marginTop: spacing.sm },
   emptySub: { color: colors.onSurfaceSecondary, fontSize: text.base, marginTop: spacing.xs, textAlign: "center" },

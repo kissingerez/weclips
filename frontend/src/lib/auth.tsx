@@ -9,6 +9,8 @@ export type Me = {
   is_subscribed: boolean;
   subscription_status: string;
   created_at: string;
+  deletion_pending?: boolean;
+  deletion_expires_at?: string | null;
 };
 
 type AuthCtx = {
