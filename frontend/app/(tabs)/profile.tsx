@@ -89,6 +89,34 @@ export default function Profile() {
                 {user.bio}
               </Text>
             ) : null}
+            <View style={styles.followCountsRow}>
+              <Pressable
+                testID="profile-followers-count"
+                onPress={() =>
+                  user?.id && router.push(`/user/${user.id}/followers?tab=followers`)
+                }
+                style={styles.countBtn}
+                hitSlop={6}
+              >
+                <Text style={styles.countNum}>{user?.followers ?? 0}</Text>
+                <Text style={styles.countLabel}>
+                  {(user?.followers ?? 0) === 1 ? "Follower" : "Followers"}
+                  {user?.followers_hidden ? " · Hidden" : ""}
+                </Text>
+              </Pressable>
+              <View style={styles.countDivider} />
+              <Pressable
+                testID="profile-following-count"
+                onPress={() =>
+                  user?.id && router.push(`/user/${user.id}/followers?tab=following`)
+                }
+                style={styles.countBtn}
+                hitSlop={6}
+              >
+                <Text style={styles.countNum}>{user?.following ?? 0}</Text>
+                <Text style={styles.countLabel}>Following</Text>
+              </Pressable>
+            </View>
             <View style={styles.statusRow}>
               <View
                 style={[
@@ -299,6 +327,16 @@ const styles = StyleSheet.create({
   username: { color: colors.brand, fontSize: text.sm, fontWeight: "700", marginTop: 2 },
   email: { color: colors.onSurfaceSecondary, fontSize: text.sm, marginTop: 2 },
   bio: { color: colors.onSurface, fontSize: text.sm, marginTop: spacing.xs, lineHeight: 18 },
+  followCountsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: spacing.sm,
+    gap: spacing.lg,
+  },
+  countBtn: { flexDirection: "row", alignItems: "baseline", gap: 4 },
+  countNum: { color: colors.onSurface, fontSize: text.base, fontWeight: "800" },
+  countLabel: { color: colors.onSurfaceSecondary, fontSize: text.sm, fontWeight: "600" },
+  countDivider: { width: 1, height: 14, backgroundColor: colors.border },
   statusRow: { flexDirection: "row", marginTop: spacing.sm },
   statusBadge: {
     flexDirection: "row",

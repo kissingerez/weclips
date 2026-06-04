@@ -9,6 +9,9 @@ export type Me = {
   username?: string | null;
   bio?: string | null;
   has_avatar?: boolean;
+  followers_hidden?: boolean;
+  followers?: number;
+  following?: number;
   is_subscribed: boolean;
   subscription_status: string;
   created_at: string;

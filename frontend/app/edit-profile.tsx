@@ -6,6 +6,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -44,6 +45,7 @@ export default function EditProfile() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [followersHidden, setFollowersHidden] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -115,6 +117,7 @@ export default function EditProfile() {
       setUsername(user.username || "");
       setBio(user.bio || "");
       setEmail(user.email || "");
+      setFollowersHidden(!!user.followers_hidden);
     }
   }, [user]);
 
@@ -157,6 +160,7 @@ export default function EditProfile() {
     if (trimmedName !== user?.display_name) body.display_name = trimmedName;
     if (u && u !== user?.username) body.username = u;
     if (bio !== (user?.bio || "")) body.bio = bio;
+    if (followersHidden !== !!user?.followers_hidden) body.followers_hidden = followersHidden;
     if (trimmedEmail !== user?.email) body.email = trimmedEmail;
     if (wantsPwChange) {
       body.current_password = currentPassword;
@@ -303,6 +307,22 @@ export default function EditProfile() {
             placeholderTextColor={colors.onSurfaceTertiary}
           />
 
+          <View style={styles.toggleRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.toggleTitle}>Hide my followers</Text>
+              <Text style={styles.hint}>
+                Other users won't see your follower count or list. You can still see your own.
+              </Text>
+            </View>
+            <Switch
+              testID="edit-hide-followers"
+              value={followersHidden}
+              onValueChange={setFollowersHidden}
+              trackColor={{ true: colors.brand, false: colors.surfaceTertiary }}
+              thumbColor={colors.onBrand}
+            />
+          </View>
+
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Change password</Text>
             <Text style={styles.hint}>Leave blank to keep your current password.</Text>
@@ -409,6 +429,16 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   avatarBtnText: { color: colors.onBrand, fontWeight: "700", fontSize: text.sm },
+  toggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    paddingVertical: spacing.lg,
+    marginTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
+  },
+  toggleTitle: { color: colors.onSurface, fontSize: text.base, fontWeight: "800" },
   label: {
     color: colors.onSurfaceSecondary,
     fontSize: text.sm,

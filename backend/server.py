@@ -123,6 +123,9 @@ class UserPublic(BaseModel):
     username: Optional[str] = None
     bio: Optional[str] = None
     has_avatar: bool = False
+    followers_hidden: bool = False
+    followers: int = 0
+    following: int = 0
     is_subscribed: bool
     subscription_status: str
     created_at: datetime
@@ -136,6 +139,7 @@ class UserSearchResult(BaseModel):
     username: Optional[str] = None
     bio: Optional[str] = None
     has_avatar: bool = False
+    followers_hidden: bool = False
     followers: int = 0
 
 
@@ -144,6 +148,7 @@ class UpdateMeReq(BaseModel):
     username: Optional[str] = Field(default=None, min_length=3, max_length=20)
     bio: Optional[str] = Field(default=None, max_length=300)
     email: Optional[EmailStr] = None
+    followers_hidden: Optional[bool] = None
     current_password: Optional[str] = None
     new_password: Optional[str] = Field(default=None, min_length=6)
 
@@ -305,7 +310,7 @@ async def require_subscriber_flexible(
     return user
 
 
-def user_to_public(u: dict) -> UserPublic:
+def user_to_public(u: dict, *, followers: int = 0, following: int = 0) -> UserPublic:
     deleted_at = u.get("deleted_at")
     deletion_pending = bool(deleted_at)
     deletion_expires_at = None
@@ -320,6 +325,9 @@ def user_to_public(u: dict) -> UserPublic:
         username=u.get("username"),
         bio=u.get("bio"),
         has_avatar=bool(u.get("avatar_base64")),
+        followers_hidden=bool(u.get("followers_hidden", False)),
+        followers=followers,
+        following=following,
         is_subscribed=bool(u.get("is_subscribed", False)),
         subscription_status=u.get("subscription_status", "none"),
         created_at=u["created_at"],
@@ -431,13 +439,14 @@ async def search_users(
                 },
             ]
         },
-        {"_id": 1, "display_name": 1, "username": 1, "avatar_base64": 1, "bio": 1},
+        {"_id": 1, "display_name": 1, "username": 1, "avatar_base64": 1, "bio": 1, "followers_hidden": 1},
     ).limit(min(max(limit, 1), 50))
     results: List[UserSearchResult] = []
     async for u in cursor:
         if u["_id"] == user["_id"]:
             continue
-        followers = await follows_col.count_documents({"followee_id": u["_id"]})
+        hidden = bool(u.get("followers_hidden", False))
+        followers = 0 if hidden else await follows_col.count_documents({"followee_id": u["_id"]})
         results.append(
             UserSearchResult(
                 id=u["_id"],
@@ -445,6 +454,7 @@ async def search_users(
                 username=u.get("username"),
                 bio=u.get("bio"),
                 has_avatar=bool(u.get("avatar_base64")),
+                followers_hidden=hidden,
                 followers=followers,
             )
         )
@@ -455,19 +465,94 @@ async def search_users(
 async def get_user_public(target_user_id: str, user: dict = Depends(get_current_user)):
     u = await users_col.find_one(
         {"_id": target_user_id},
-        {"display_name": 1, "username": 1, "avatar_base64": 1, "bio": 1},
+        {"display_name": 1, "username": 1, "avatar_base64": 1, "bio": 1, "followers_hidden": 1},
     )
     if not u:
         raise HTTPException(status_code=404, detail="User not found")
-    followers = await follows_col.count_documents({"followee_id": target_user_id})
+    hidden = bool(u.get("followers_hidden", False))
+    # Owner sees their own count even if hidden.
+    is_owner = (target_user_id == user["_id"])
+    followers = (
+        await follows_col.count_documents({"followee_id": target_user_id})
+        if (is_owner or not hidden)
+        else 0
+    )
     return UserSearchResult(
         id=u["_id"],
         display_name=u.get("display_name") or "User",
         username=u.get("username"),
         bio=u.get("bio"),
         has_avatar=bool(u.get("avatar_base64")),
+        followers_hidden=hidden,
         followers=followers,
     )
+
+
+@api.get("/users/{target_user_id}/followers", response_model=List[UserSearchResult])
+async def get_user_followers(target_user_id: str, user: dict = Depends(get_current_user)):
+    t = await users_col.find_one(
+        {"_id": target_user_id}, {"followers_hidden": 1}
+    )
+    if not t:
+        raise HTTPException(status_code=404, detail="User not found")
+    is_owner = target_user_id == user["_id"]
+    if not is_owner and bool(t.get("followers_hidden", False)):
+        raise HTTPException(status_code=403, detail="This user's followers are hidden")
+    cursor = follows_col.find({"followee_id": target_user_id}).sort("created_at", -1).limit(500)
+    ids: List[str] = []
+    async for f in cursor:
+        ids.append(f["follower_id"])
+    return await _users_to_results(ids, user["_id"])
+
+
+@api.get("/users/{target_user_id}/following", response_model=List[UserSearchResult])
+async def get_user_following(target_user_id: str, user: dict = Depends(get_current_user)):
+    t = await users_col.find_one(
+        {"_id": target_user_id}, {"followers_hidden": 1}
+    )
+    if not t:
+        raise HTTPException(status_code=404, detail="User not found")
+    is_owner = target_user_id == user["_id"]
+    if not is_owner and bool(t.get("followers_hidden", False)):
+        raise HTTPException(status_code=403, detail="This user's following list is hidden")
+    cursor = follows_col.find({"follower_id": target_user_id}).sort("created_at", -1).limit(500)
+    ids: List[str] = []
+    async for f in cursor:
+        ids.append(f["followee_id"])
+    return await _users_to_results(ids, user["_id"])
+
+
+async def _users_to_results(user_ids: List[str], viewer_id: str) -> List[UserSearchResult]:
+    if not user_ids:
+        return []
+    out: List[UserSearchResult] = []
+    cursor = users_col.find(
+        {"_id": {"$in": user_ids}},
+        {"_id": 1, "display_name": 1, "username": 1, "avatar_base64": 1, "bio": 1, "followers_hidden": 1},
+    )
+    # Preserve roughly the follow chronology
+    order = {uid: idx for idx, uid in enumerate(user_ids)}
+    rows = []
+    async for u in cursor:
+        rows.append(u)
+    rows.sort(key=lambda u: order.get(u["_id"], 0))
+    for u in rows:
+        hidden = bool(u.get("followers_hidden", False))
+        followers = 0 if (hidden and viewer_id != u["_id"]) else await follows_col.count_documents(
+            {"followee_id": u["_id"]}
+        )
+        out.append(
+            UserSearchResult(
+                id=u["_id"],
+                display_name=u.get("display_name") or "User",
+                username=u.get("username"),
+                bio=u.get("bio"),
+                has_avatar=bool(u.get("avatar_base64")),
+                followers_hidden=hidden,
+                followers=followers,
+            )
+        )
+    return out
 
 
 @api.get("/users/{target_user_id}/avatar")
@@ -549,7 +634,9 @@ async def login(body: LoginReq):
 
 @api.get("/auth/me", response_model=UserPublic)
 async def me(user: dict = Depends(get_current_user)):
-    return user_to_public(user)
+    fol = await follows_col.count_documents({"followee_id": user["_id"]})
+    fwn = await follows_col.count_documents({"follower_id": user["_id"]})
+    return user_to_public(user, followers=fol, following=fwn)
 
 
 @api.patch("/auth/me", response_model=UserPublic)
@@ -582,6 +669,10 @@ async def update_me(body: UpdateMeReq, user: dict = Depends(get_current_user)):
     # Bio
     if body.bio is not None:
         updates["bio"] = body.bio.strip()
+
+    # Followers visibility toggle
+    if body.followers_hidden is not None:
+        updates["followers_hidden"] = bool(body.followers_hidden)
 
     # Email
     if body.email is not None:
@@ -622,7 +713,10 @@ async def update_me(body: UpdateMeReq, user: dict = Depends(get_current_user)):
         await videos_col.update_many({"creator_id": user["_id"]}, {"$set": cascade})
 
     refreshed = await users_col.find_one({"_id": user["_id"]}, {"password_hash": 0})
-    return user_to_public(refreshed or user)
+    final = refreshed or user
+    fol = await follows_col.count_documents({"followee_id": user["_id"]})
+    fwn = await follows_col.count_documents({"follower_id": user["_id"]})
+    return user_to_public(final, followers=fol, following=fwn)
 
 
 # --- Password reset ---

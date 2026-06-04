@@ -21,6 +21,7 @@ type PublicUser = {
   username?: string | null;
   bio?: string | null;
   has_avatar?: boolean;
+  followers_hidden?: boolean;
   followers: number;
 };
 
@@ -136,9 +137,19 @@ export default function UserProfile() {
             {user.username ? (
               <Text style={styles.handle}>@{user.username}</Text>
             ) : null}
-            <Text style={styles.followers}>
-              {user.followers} {user.followers === 1 ? "follower" : "followers"}
-            </Text>
+            {user.followers_hidden ? (
+              <Text style={styles.followers}>Followers hidden</Text>
+            ) : (
+              <Pressable
+                testID="user-profile-followers-count"
+                onPress={() => router.push(`/user/${user.id}/followers?tab=followers`)}
+                hitSlop={6}
+              >
+                <Text style={styles.followers}>
+                  {user.followers} {user.followers === 1 ? "follower" : "followers"}
+                </Text>
+              </Pressable>
+            )}
           </View>
         </View>
 
