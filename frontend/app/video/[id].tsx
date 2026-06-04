@@ -14,8 +14,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { Ionicons } from "@expo/vector-icons";
-import { api, API_BASE } from "@/src/lib/api";
+import { api, API_BASE, ApiError } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
+import { tokenStorage } from "@/src/lib/tokenStorage";
 import { colors, radius, spacing, text } from "@/src/theme";
 
 type VideoDetail = {
@@ -44,11 +45,30 @@ export default function VideoScreen() {
   const [liked, setLiked] = useState(false);
   const [likes, setLikes] = useState(0);
   const [newComment, setNewComment] = useState("");
+  const [streamUrl, setStreamUrl] = useState<string>("");
 
-  const streamUrl = id ? `${API_BASE}/videos/${id}/stream` : "";
-  const player = useVideoPlayer(streamUrl, (p) => {
+  // Build a stream URL with the JWT in the query string so the native
+  // player can authenticate range requests without custom headers.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!id) return;
+      const tok = await tokenStorage.get();
+      if (cancelled) return;
+      setStreamUrl(
+        tok
+          ? `${API_BASE}/videos/${id}/stream?token=${encodeURIComponent(tok)}`
+          : `${API_BASE}/videos/${id}/stream`
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  const player = useVideoPlayer(streamUrl || null, (p) => {
     p.loop = false;
-    p.play();
+    if (streamUrl) p.play();
   });
 
   const load = useCallback(async () => {
@@ -62,12 +82,16 @@ export default function VideoScreen() {
       setVideo(v);
       setLikes(v.likes);
       setComments(cs);
-    } catch {
+    } catch (e: any) {
+      if (e instanceof ApiError && e.status === 402) {
+        router.replace("/paywall");
+        return;
+      }
       setVideo(null);
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, router]);
 
   useEffect(() => {
     load();

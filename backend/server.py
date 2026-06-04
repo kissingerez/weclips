@@ -152,6 +152,49 @@ async def get_current_user(
     return user
 
 
+async def get_current_user_flexible(
+    creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer),
+    token: Optional[str] = None,
+) -> dict:
+    """Like get_current_user but also accepts ?token=<jwt> for media players
+    (expo-video, browsers) that can't easily attach Authorization headers to
+    HTTP Range/streaming requests."""
+    jwt_str: Optional[str] = None
+    if creds is not None:
+        jwt_str = creds.credentials
+    elif token:
+        jwt_str = token
+
+    if not jwt_str:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        payload = jwt.decode(jwt_str, JWT_SECRET, algorithms=[JWT_ALG])
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid token")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    user = await users_col.find_one({"_id": user_id}, {"password_hash": 0})
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user
+
+
+async def require_subscriber(user: dict = Depends(get_current_user)) -> dict:
+    if not user.get("is_subscribed", False):
+        raise HTTPException(status_code=402, detail="Active subscription required")
+    return user
+
+
+async def require_subscriber_flexible(
+    user: dict = Depends(get_current_user_flexible),
+) -> dict:
+    if not user.get("is_subscribed", False):
+        raise HTTPException(status_code=402, detail="Active subscription required")
+    return user
+
+
 def user_to_public(u: dict) -> UserPublic:
     return UserPublic(
         id=u["_id"],
@@ -466,7 +509,7 @@ async def my_videos(user: dict = Depends(get_current_user)):
 
 
 @api.get("/videos/{video_id}", response_model=VideoPublic)
-async def get_video(video_id: str):
+async def get_video(video_id: str, user: dict = Depends(require_subscriber)):
     v = await videos_col.find_one(
         {"_id": video_id}, {"content_base64": 0, "thumbnail_base64": 0, "liked_by": 0}
     )
@@ -478,7 +521,11 @@ async def get_video(video_id: str):
 
 
 @api.get("/videos/{video_id}/stream")
-async def stream_video(video_id: str, request: Request):
+async def stream_video(
+    video_id: str,
+    request: Request,
+    user: dict = Depends(require_subscriber_flexible),
+):
     v = await videos_col.find_one(
         {"_id": video_id},
         {"file_path": 1, "mime_type": 1, "file_size": 1, "content_base64": 1},
@@ -575,7 +622,7 @@ async def get_thumbnail(video_id: str):
 
 
 @api.post("/videos/{video_id}/like")
-async def like_video(video_id: str, user: dict = Depends(get_current_user)):
+async def like_video(video_id: str, user: dict = Depends(require_subscriber)):
     v = await videos_col.find_one({"_id": video_id}, {"liked_by": 1, "likes": 1})
     if not v:
         raise HTTPException(status_code=404, detail="Not found")
@@ -594,7 +641,7 @@ async def like_video(video_id: str, user: dict = Depends(get_current_user)):
 
 
 @api.get("/videos/{video_id}/comments", response_model=List[CommentPublic])
-async def list_comments(video_id: str):
+async def list_comments(video_id: str, user: dict = Depends(require_subscriber)):
     cursor = comments_col.find({"video_id": video_id}).sort("created_at", -1).limit(200)
     out = []
     async for c in cursor:
@@ -612,7 +659,7 @@ async def list_comments(video_id: str):
 
 
 @api.post("/videos/{video_id}/comments", response_model=CommentPublic)
-async def add_comment(video_id: str, body: CommentReq, user: dict = Depends(get_current_user)):
+async def add_comment(video_id: str, body: CommentReq, user: dict = Depends(require_subscriber)):
     v = await videos_col.find_one({"_id": video_id}, {"_id": 1})
     if not v:
         raise HTTPException(status_code=404, detail="Video not found")
