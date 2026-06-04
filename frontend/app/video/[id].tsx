@@ -25,6 +25,7 @@ type VideoDetail = {
   description: string;
   creator_id: string;
   creator_name: string;
+  creator_username?: string | null;
   views: number;
   likes: number;
   created_at: string;
@@ -253,7 +254,7 @@ export default function VideoScreen() {
             <View style={styles.meta}>
               <Text style={styles.title} testID="video-title">{video.title}</Text>
               <Text style={styles.sub}>
-                {video.creator_name} · {video.views} {video.views === 1 ? "view" : "views"}
+                {video.creator_username ? `@${video.creator_username}` : video.creator_name} · {video.views} {video.views === 1 ? "view" : "views"}
               </Text>
 
               {user && video.creator_id !== user.id ? (

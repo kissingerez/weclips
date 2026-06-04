@@ -11,6 +11,7 @@ export type VideoCardData = {
   id: string;
   title: string;
   creator_name: string;
+  creator_username?: string | null;
   views: number;
   has_thumbnail: boolean;
   created_at: string;
@@ -56,7 +57,7 @@ export const VideoCard: React.FC<{ video: VideoCardData }> = ({ video }) => {
           {video.title}
         </Text>
         <Text style={styles.sub}>
-          {video.creator_name} · {video.views} {video.views === 1 ? "view" : "views"}
+          {video.creator_username ? `@${video.creator_username}` : video.creator_name} · {video.views} {video.views === 1 ? "view" : "views"}
         </Text>
       </View>
     </Pressable>

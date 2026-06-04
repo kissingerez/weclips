@@ -6,6 +6,7 @@ export type Me = {
   id: string;
   email: string;
   display_name: string;
+  username?: string | null;
   is_subscribed: boolean;
   subscription_status: string;
   created_at: string;
@@ -17,7 +18,7 @@ type AuthCtx = {
   user: Me | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  signup: (email: string, password: string, display_name: string) => Promise<void>;
+  signup: (email: string, password: string, display_name: string, username?: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 };
@@ -59,12 +60,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await refresh();
   };
 
-  const signup = async (email: string, password: string, display_name: string) => {
-    const { access_token } = await api.post<{ access_token: string }>("/auth/signup", {
-      email,
-      password,
-      display_name,
-    });
+  const signup = async (email: string, password: string, display_name: string, username?: string) => {
+    const body: any = { email, password, display_name };
+    if (username && username.trim()) body.username = username.trim();
+    const { access_token } = await api.post<{ access_token: string }>("/auth/signup", body);
     await tokenStorage.set(access_token);
     await refresh();
   };

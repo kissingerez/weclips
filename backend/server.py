@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 import base64
 import hashlib
@@ -97,6 +98,7 @@ class SignupReq(BaseModel):
     email: EmailStr
     password: str = Field(min_length=6)
     display_name: str = Field(min_length=1, max_length=40)
+    username: Optional[str] = Field(default=None, min_length=3, max_length=20)
 
 
 class LoginReq(BaseModel):
@@ -113,11 +115,19 @@ class UserPublic(BaseModel):
     id: str
     email: EmailStr
     display_name: str
+    username: Optional[str] = None
     is_subscribed: bool
     subscription_status: str
     created_at: datetime
     deletion_pending: bool = False
     deletion_expires_at: Optional[datetime] = None
+
+
+class UserSearchResult(BaseModel):
+    id: str
+    display_name: str
+    username: Optional[str] = None
+    followers: int = 0
 
 
 class VideoUploadReq(BaseModel):
@@ -136,6 +146,7 @@ class VideoPublic(BaseModel):
     mime_type: str
     creator_id: str
     creator_name: str
+    creator_username: Optional[str] = None
     views: int
     likes: int
     has_thumbnail: bool
@@ -162,6 +173,30 @@ def now_utc() -> datetime:
 
 def hash_password(p: str) -> str:
     return pwd_context.hash(p)
+
+
+USERNAME_RE = re.compile(r"^[a-z0-9_]{3,20}$")
+
+
+def _normalize_username(raw: str) -> str:
+    return (raw or "").strip().lstrip("@").lower()
+
+
+def _slug_from_display(name: str) -> str:
+    # Strip non-alnum/underscore, lowercase, fall back to "user"
+    s = re.sub(r"[^a-z0-9_]", "", (name or "").lower())
+    return s[:18] or "user"
+
+
+async def _generate_unique_username(base: str) -> str:
+    candidate = base
+    # try N suffixed variants
+    for _ in range(50):
+        if not await users_col.find_one({"username": candidate}, {"_id": 1}):
+            return candidate
+        candidate = f"{base[:14]}{secrets.randbelow(10000):04d}"
+    # last resort
+    return f"u{secrets.token_hex(4)}"
 
 
 def verify_password(p: str, h: str) -> bool:
@@ -250,6 +285,7 @@ def user_to_public(u: dict) -> UserPublic:
         id=u["_id"],
         email=u["email"],
         display_name=u["display_name"],
+        username=u.get("username"),
         is_subscribed=bool(u.get("is_subscribed", False)),
         subscription_status=u.get("subscription_status", "none"),
         created_at=u["created_at"],
@@ -266,6 +302,7 @@ def video_to_public(v: dict) -> VideoPublic:
         mime_type=v.get("mime_type", "video/mp4"),
         creator_id=v["creator_id"],
         creator_name=v.get("creator_name", "Anonymous"),
+        creator_username=v.get("creator_username"),
         views=int(v.get("views", 0)),
         likes=int(v.get("likes", 0)),
         has_thumbnail=bool(v.get("thumbnail_base64")),
@@ -285,12 +322,28 @@ async def signup(body: SignupReq):
     existing = await users_col.find_one({"email": email})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
+
+    # Resolve username (validate provided OR auto-generate from display_name)
+    if body.username:
+        username = _normalize_username(body.username)
+        if not USERNAME_RE.match(username):
+            raise HTTPException(
+                status_code=400,
+                detail="Username must be 3-20 characters, lowercase letters/numbers/underscores only.",
+            )
+        if await users_col.find_one({"username": username}, {"_id": 1}):
+            raise HTTPException(status_code=400, detail="Username already taken")
+    else:
+        base = _slug_from_display(body.display_name)
+        username = await _generate_unique_username(base)
+
     user_id = str(uuid.uuid4())
     doc = {
         "_id": user_id,
         "email": email,
         "password_hash": hash_password(body.password),
         "display_name": body.display_name.strip(),
+        "username": username,
         "is_subscribed": False,
         "subscription_status": "none",
         "subscription_expires_at": None,
@@ -300,6 +353,73 @@ async def signup(body: SignupReq):
     }
     await users_col.insert_one(doc)
     return TokenResp(access_token=create_access_token(user_id))
+
+
+# --- Username availability + search ---
+@api.get("/users/username-available")
+async def username_available(u: str):
+    norm = _normalize_username(u)
+    if not USERNAME_RE.match(norm):
+        return {"available": False, "reason": "invalid"}
+    exists = await users_col.find_one({"username": norm}, {"_id": 1})
+    return {"available": not exists, "username": norm}
+
+
+@api.get("/users/search", response_model=List[UserSearchResult])
+async def search_users(
+    q: str,
+    limit: int = 20,
+    user: dict = Depends(get_current_user),
+):
+    term = (q or "").strip().lstrip("@")
+    if len(term) < 1:
+        return []
+    # Case-insensitive partial match on username OR display_name
+    safe = re.escape(term)
+    cursor = users_col.find(
+        {
+            "$and": [
+                {"deleted_at": {"$in": [None, False]}},
+                {
+                    "$or": [
+                        {"username": {"$regex": safe, "$options": "i"}},
+                        {"display_name": {"$regex": safe, "$options": "i"}},
+                    ]
+                },
+            ]
+        },
+        {"_id": 1, "display_name": 1, "username": 1},
+    ).limit(min(max(limit, 1), 50))
+    results: List[UserSearchResult] = []
+    async for u in cursor:
+        if u["_id"] == user["_id"]:
+            continue
+        followers = await follows_col.count_documents({"followee_id": u["_id"]})
+        results.append(
+            UserSearchResult(
+                id=u["_id"],
+                display_name=u.get("display_name") or "User",
+                username=u.get("username"),
+                followers=followers,
+            )
+        )
+    return results
+
+
+@api.get("/users/{target_user_id}", response_model=UserSearchResult)
+async def get_user_public(target_user_id: str, user: dict = Depends(get_current_user)):
+    u = await users_col.find_one(
+        {"_id": target_user_id}, {"display_name": 1, "username": 1}
+    )
+    if not u:
+        raise HTTPException(status_code=404, detail="User not found")
+    followers = await follows_col.count_documents({"followee_id": target_user_id})
+    return UserSearchResult(
+        id=u["_id"],
+        display_name=u.get("display_name") or "User",
+        username=u.get("username"),
+        followers=followers,
+    )
 
 
 @api.post("/auth/login", response_model=TokenResp)
@@ -655,6 +775,7 @@ async def create_upload_url(body: UploadUrlReq, user: dict = Depends(require_sub
             "upload_complete": False,
             "creator_id": user["_id"],
             "creator_name": user["display_name"],
+            "creator_username": user.get("username"),
             "views": 0,
             "likes": 0,
             "liked_by": [],
@@ -767,6 +888,7 @@ async def upload_video(
         "file_size": bytes_written,
         "creator_id": user["_id"],
         "creator_name": user["display_name"],
+        "creator_username": user.get("username"),
         "views": 0,
         "likes": 0,
         "liked_by": [],
@@ -1220,6 +1342,49 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def startup():
+    # Unique index for usernames (sparse so legacy users without one are OK)
+    try:
+        await users_col.create_index("username", unique=True, sparse=True)
+    except Exception as e:
+        logger.warning("Username index creation failed: %s", e)
+    # Backfill: assign auto-generated usernames to existing users that lack one
+    try:
+        cursor = users_col.find(
+            {"$or": [{"username": {"$exists": False}}, {"username": None}]},
+            {"_id": 1, "display_name": 1, "email": 1},
+        )
+        async for u in cursor:
+            base = _slug_from_display(u.get("display_name") or (u.get("email", "user").split("@")[0]))
+            new_username = await _generate_unique_username(base)
+            try:
+                await users_col.update_one(
+                    {"_id": u["_id"]}, {"$set": {"username": new_username}}
+                )
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warning("Username backfill failed: %s", e)
+
+    # Backfill creator_username on existing videos
+    try:
+        async for v in videos_col.find(
+            {"$or": [{"creator_username": {"$exists": False}}, {"creator_username": None}]},
+            {"_id": 1, "creator_id": 1},
+        ):
+            cid = v.get("creator_id")
+            if not cid:
+                continue
+            u = await users_col.find_one({"_id": cid}, {"username": 1})
+            if u and u.get("username"):
+                await videos_col.update_one(
+                    {"_id": v["_id"]}, {"$set": {"creator_username": u["username"]}}
+                )
+    except Exception as e:
+        logger.warning("Video creator_username backfill failed: %s", e)
 
 
 @app.on_event("shutdown")

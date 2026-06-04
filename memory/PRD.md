@@ -40,6 +40,13 @@ Anyone can browse the catalog when authenticated, but **watching requires an act
 - Credentials and endpoint configured in `/app/backend/.env`
 - Verified: ListBuckets denied (token is bucket-scoped — correct), HeadBucket succeeds, presigned PUT + GET + Range request all return 200/206.
 
+## Social features
+- **Usernames (`@handle`)**: unique, 3-20 chars, lowercase letters/numbers/underscores. Set at signup (or auto-generated from display name). Backfilled for existing users at backend startup.
+- **User search**: `GET /api/users/search?q=<term>` (auth required) — partial match on username or display name. Used by the Search tab's "Users" mode toggle.
+- **Username availability**: `GET /api/users/username-available?u=<candidate>`.
+- **Follow/unfollow**: `POST/DELETE /api/users/{id}/follow`, `GET /api/users/{id}/follow-status`. Surfaced on the video player and user search results.
+- **Comments, likes, view counts, block, report, soft-delete (30-day grace)**: implemented.
+
 ## Constraints / Next iterations
 - IAP cannot be tested in Expo Go/web preview — requires a real device build (Emergent Publish flow).
 - Add a multipart-upload path for very large videos (>5 GB) — currently single-PUT covers up to 5 GB.

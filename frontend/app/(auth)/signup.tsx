@@ -19,15 +19,22 @@ export default function Signup() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const onSubmit = async () => {
     setErr(null);
+    // Light client-side validation for username if provided
+    const u = username.trim().replace(/^@/, "").toLowerCase();
+    if (u && !/^[a-z0-9_]{3,20}$/.test(u)) {
+      setErr("Username must be 3-20 chars, lowercase letters, numbers or _");
+      return;
+    }
     setLoading(true);
     try {
-      await signup(email.trim(), password, name.trim());
+      await signup(email.trim(), password, name.trim(), u || undefined);
       router.replace("/(tabs)/home");
     } catch (e: any) {
       setErr(e?.message ?? "Signup failed");
@@ -54,6 +61,20 @@ export default function Signup() {
             value={name}
             onChangeText={setName}
           />
+          <TextInput
+            testID="signup-username-input"
+            placeholder="Username (optional, @handle)"
+            placeholderTextColor={colors.onSurfaceTertiary}
+            autoCapitalize="none"
+            autoCorrect={false}
+            style={styles.input}
+            value={username}
+            onChangeText={(v) => setUsername(v.replace(/[^a-zA-Z0-9_@]/g, ""))}
+            maxLength={21}
+          />
+          <Text style={styles.hint}>
+            3-20 chars, lowercase letters, numbers and underscores. Leave blank to auto-generate.
+          </Text>
           <TextInput
             testID="signup-email-input"
             placeholder="Email"
@@ -115,6 +136,7 @@ const styles = StyleSheet.create({
   btn: { backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: "center", marginTop: spacing.sm },
   btnText: { color: colors.onBrand, fontWeight: "700", fontSize: text.lg },
   error: { color: colors.error, backgroundColor: colors.errorBg, padding: spacing.md, borderRadius: radius.sm, marginBottom: spacing.md },
+  hint: { color: colors.onSurfaceTertiary, fontSize: text.sm, marginTop: -spacing.xs, marginBottom: spacing.md },
   linkRow: { flexDirection: "row", justifyContent: "center", marginTop: spacing.lg },
   linkMuted: { color: colors.onSurfaceSecondary },
   link: { color: colors.brand, fontWeight: "700" },
