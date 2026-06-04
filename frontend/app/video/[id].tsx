@@ -219,8 +219,9 @@ export default function VideoScreen() {
             ref={videoRef}
             style={styles.player}
             player={player}
-            allowsFullscreen
+            fullscreenOptions={{ enable: true, autoExitOnRotate: false, orientation: "default" }}
             allowsPictureInPicture
+            nativeControls
             contentFit="contain"
           />
           <Pressable testID="video-back-button" onPress={() => router.back()} style={styles.backIcon} hitSlop={10}>

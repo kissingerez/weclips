@@ -1036,6 +1036,29 @@ async def delete_comment(
     return {"deleted": True, "id": comment_id}
 
 
+@api.delete("/videos/{video_id}")
+async def delete_video(video_id: str, user: dict = Depends(get_current_user)):
+    v = await videos_col.find_one({"_id": video_id})
+    if not v:
+        raise HTTPException(status_code=404, detail="Video not found")
+    if v.get("creator_id") != user["_id"]:
+        raise HTTPException(status_code=403, detail="Only the creator can delete this video")
+    # Remove R2 object (if any)
+    if v.get("storage") == "r2" and v.get("r2_key") and s3 is not None:
+        try:
+            s3.delete_object(Bucket=R2_BUCKET, Key=v["r2_key"])
+        except Exception:
+            pass
+    elif v.get("file_path") and os.path.isfile(v["file_path"]):
+        try:
+            os.remove(v["file_path"])
+        except Exception:
+            pass
+    await comments_col.delete_many({"video_id": video_id})
+    await videos_col.delete_one({"_id": video_id})
+    return {"deleted": True, "id": video_id}
+
+
 # --- Account deletion with 30-day grace period (Apple guideline 5.1.1(v)) ---
 DELETION_GRACE_DAYS = int(os.environ.get("DELETION_GRACE_DAYS", "30"))
 
