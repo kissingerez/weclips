@@ -46,7 +46,9 @@ Anyone can browse the catalog when authenticated, but **watching requires an act
 - **Username availability**: `GET /api/users/username-available?u=<candidate>`.
 - **Follow/unfollow**: `POST/DELETE /api/users/{id}/follow`, `GET /api/users/{id}/follow-status`. Surfaced on the video player and user search results.
 - **Edit account**: `PATCH /api/auth/me` updates display name, username, email and password (`current_password` required). Cascades display_name/username changes to all existing videos by that creator. UI: `/edit-profile` accessible from the Profile tab.
-- **Thumbnails**: Auto-generated from the picked video at upload time using `expo-video-thumbnails` (1s frame, JPEG); creator can also pick a custom image (16:9 crop). Persisted as base64 via `PUT /api/videos/{id}/thumbnail` (creator-only, max ~512KB). Served by existing `GET /api/videos/{id}/thumbnail`.
+- **Profile picture**: `PUT /api/auth/me/avatar` (base64, ~400KB cap), `DELETE /api/auth/me/avatar`, `GET /api/users/{id}/avatar` (public, 1h cache). `has_avatar` boolean returned by `/auth/me`, `/users/search`, `/users/{id}`. Shared `Avatar` component (cache-bustable via `version`). Set/changed/removed from the Edit account screen, displayed on Profile + Search users + (TODO: video player).
+- **Edit video**: `PATCH /api/videos/{id}` (creator-only) updates title/description; thumbnail update reuses existing `PUT /api/videos/{id}/thumbnail`. UI at `/video/edit/[id]` accessed via per-row "Edit" button on the Profile tab (alongside "Delete").
+- **Thumbnails**: At upload time, **3 frames are auto-extracted** from the picked video (Start / Middle / End) using `expo-video-thumbnails` (quality 0.7 JPEG). User can tap any of the 3 to select, hit "Refresh" to regenerate, or "Upload custom image" for a 16:9 crop. Persisted as base64 via `PUT /api/videos/{id}/thumbnail` (creator-only, max ~512KB). Served by existing `GET /api/videos/{id}/thumbnail` (1-hour cache).
 - **Comments, likes, view counts, block, report, soft-delete (30-day grace)**: implemented.
 
 ## Constraints / Next iterations

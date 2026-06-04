@@ -13,9 +13,24 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { useAuth } from "@/src/lib/auth";
 import { api, ApiError } from "@/src/lib/api";
+import { Avatar } from "@/src/components/Avatar";
 import { colors, radius, spacing, text } from "@/src/theme";
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const r = (reader.result as string) || "";
+      const c = r.indexOf(",");
+      resolve(c >= 0 ? r.slice(c + 1) : r);
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
 
 export default function EditProfile() {
   const { user, refresh } = useAuth();
@@ -31,6 +46,66 @@ export default function EditProfile() {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  const [avatarVer, setAvatarVer] = useState(0);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+
+  const pickAvatar = async () => {
+    setErr(null);
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      setErr("Media library permission required.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+      base64: true,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+    let b64 = asset.base64;
+    if (!b64) {
+      try {
+        const resp = await fetch(asset.uri);
+        const blob = await resp.blob();
+        b64 = await blobToBase64(blob);
+      } catch {}
+    }
+    if (!b64) {
+      setErr("Could not read image.");
+      return;
+    }
+    setAvatarBusy(true);
+    try {
+      await api.put("/auth/me/avatar", { avatar_base64: b64 });
+      setAvatarUri(asset.uri);
+      setAvatarVer(Date.now());
+      await refresh();
+      setOk("Profile picture updated.");
+    } catch (e: any) {
+      setErr(e?.message || "Could not upload picture");
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
+  const removeAvatar = async () => {
+    setAvatarBusy(true);
+    try {
+      await api.del("/auth/me/avatar");
+      setAvatarUri(null);
+      setAvatarVer(Date.now());
+      await refresh();
+      setOk("Profile picture removed.");
+    } catch (e: any) {
+      setErr(e?.message || "Could not remove picture");
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (user) {
@@ -134,6 +209,53 @@ export default function EditProfile() {
               {ok}
             </Text>
           ) : null}
+
+          <View style={styles.avatarRow}>
+            <Avatar
+              userId={user?.id}
+              displayName={user?.display_name}
+              hasAvatar={!!user?.has_avatar}
+              size={88}
+              version={avatarVer}
+              uri={avatarUri}
+            />
+            <View style={{ flex: 1, marginLeft: spacing.lg }}>
+              <Text style={styles.avatarTitle}>Profile picture</Text>
+              <Text style={styles.hint}>Square crop. Visible to other users.</Text>
+              <View style={styles.avatarBtnRow}>
+                <Pressable
+                  testID="edit-avatar-pick"
+                  onPress={pickAvatar}
+                  disabled={avatarBusy}
+                  style={[styles.avatarBtn, avatarBusy && { opacity: 0.6 }]}
+                >
+                  {avatarBusy ? (
+                    <ActivityIndicator color={colors.onBrand} size="small" />
+                  ) : (
+                    <>
+                      <Ionicons name="camera" size={14} color={colors.onBrand} />
+                      <Text style={styles.avatarBtnText}>
+                        {user?.has_avatar ? "Change" : "Upload"}
+                      </Text>
+                    </>
+                  )}
+                </Pressable>
+                {user?.has_avatar ? (
+                  <Pressable
+                    testID="edit-avatar-remove"
+                    onPress={removeAvatar}
+                    disabled={avatarBusy}
+                    style={[styles.avatarBtn, styles.avatarBtnGhost]}
+                  >
+                    <Ionicons name="trash-outline" size={14} color={colors.onSurface} />
+                    <Text style={[styles.avatarBtnText, { color: colors.onSurface }]}>
+                      Remove
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
+          </View>
 
           <Text style={styles.label}>Display name</Text>
           <TextInput
@@ -245,6 +367,31 @@ const styles = StyleSheet.create({
   },
   headerTitle: { color: colors.onSurface, fontSize: text.lg, fontWeight: "800" },
   scroll: { padding: spacing.lg, paddingBottom: spacing.xxxl },
+  avatarRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.divider,
+    marginBottom: spacing.md,
+  },
+  avatarTitle: { color: colors.onSurface, fontSize: text.lg, fontWeight: "800" },
+  avatarBtnRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm, flexWrap: "wrap" },
+  avatarBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: colors.brand,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+  },
+  avatarBtnGhost: {
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  avatarBtnText: { color: colors.onBrand, fontWeight: "700", fontSize: text.sm },
   label: {
     color: colors.onSurfaceSecondary,
     fontSize: text.sm,

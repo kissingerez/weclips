@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import { VideoCard, VideoCardData } from "@/src/components/VideoCard";
+import { Avatar } from "@/src/components/Avatar";
 import { colors, radius, spacing, text } from "@/src/theme";
 
 export default function Profile() {
@@ -66,11 +67,13 @@ export default function Profile() {
         ) : null}
 
         <View style={styles.header}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {(user?.display_name?.[0] || "?").toUpperCase()}
-            </Text>
-          </View>
+          <Avatar
+            userId={user?.id}
+            displayName={user?.display_name}
+            hasAvatar={!!user?.has_avatar}
+            size={64}
+            version={user?.id}
+          />
           <View style={{ flex: 1 }}>
             <Text style={styles.name} testID="profile-name">
               {user?.display_name || "Unknown"}
@@ -227,26 +230,37 @@ export default function Profile() {
           videos.map((item) => (
             <View key={item.id} style={styles.videoRow}>
               <VideoCard video={item} />
-              <Pressable
-                testID={`profile-delete-video-${item.id}`}
-                onPress={() => {
-                  if (typeof window !== "undefined" && window.confirm) {
-                    if (!window.confirm(`Delete "${item.title}"? This cannot be undone.`))
-                      return;
-                  }
-                  (async () => {
-                    try {
-                      await api.del(`/videos/${item.id}`);
-                      setVideos((prev) => prev.filter((v) => v.id !== item.id));
-                    } catch {}
-                  })();
-                }}
-                style={styles.deleteVideoBtn}
-                hitSlop={8}
-              >
-                <Ionicons name="trash" size={14} color={colors.onBrand} />
-                <Text style={styles.deleteVideoText}>Delete</Text>
-              </Pressable>
+              <View style={styles.videoActions}>
+                <Pressable
+                  testID={`profile-edit-video-${item.id}`}
+                  onPress={() => router.push(`/video/edit/${item.id}`)}
+                  style={[styles.videoBtn, { backgroundColor: colors.brand }]}
+                  hitSlop={8}
+                >
+                  <Ionicons name="create" size={14} color={colors.onBrand} />
+                  <Text style={styles.videoBtnText}>Edit</Text>
+                </Pressable>
+                <Pressable
+                  testID={`profile-delete-video-${item.id}`}
+                  onPress={() => {
+                    if (typeof window !== "undefined" && window.confirm) {
+                      if (!window.confirm(`Delete "${item.title}"? This cannot be undone.`))
+                        return;
+                    }
+                    (async () => {
+                      try {
+                        await api.del(`/videos/${item.id}`);
+                        setVideos((prev) => prev.filter((v) => v.id !== item.id));
+                      } catch {}
+                    })();
+                  }}
+                  style={[styles.videoBtn, { backgroundColor: colors.error }]}
+                  hitSlop={8}
+                >
+                  <Ionicons name="trash" size={14} color={colors.onBrand} />
+                  <Text style={styles.videoBtnText}>Delete</Text>
+                </Pressable>
+              </View>
             </View>
           ))
         )}
@@ -335,19 +349,22 @@ const styles = StyleSheet.create({
   },
   restoreText: { color: colors.onBrand, fontWeight: "700", fontSize: text.sm },
   videoRow: { position: "relative" },
-  deleteVideoBtn: {
+  videoActions: {
     position: "absolute",
     top: spacing.sm,
     left: spacing.sm,
     flexDirection: "row",
+    gap: spacing.xs,
+  },
+  videoBtn: {
+    flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    backgroundColor: colors.error,
     paddingHorizontal: spacing.sm,
     paddingVertical: 4,
     borderRadius: radius.pill,
   },
-  deleteVideoText: { color: colors.onBrand, fontSize: 11, fontWeight: "800" },
+  videoBtnText: { color: colors.onBrand, fontSize: 11, fontWeight: "800" },
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl },
   emptyTitle: {
     color: colors.onSurface,

@@ -89,7 +89,7 @@ export default function Login() {
 
             <Link href="/(auth)/forgot" asChild>
               <Pressable testID="login-forgot-link" style={styles.forgotRow} hitSlop={10}>
-                <Text style={styles.link}>Forgot password?</Text>
+                <Text style={styles.link}>Reset password</Text>
               </Pressable>
             </Link>
           </View>

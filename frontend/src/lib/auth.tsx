@@ -7,6 +7,7 @@ export type Me = {
   email: string;
   display_name: string;
   username?: string | null;
+  has_avatar?: boolean;
   is_subscribed: boolean;
   subscription_status: string;
   created_at: string;

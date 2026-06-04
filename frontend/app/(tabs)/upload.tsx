@@ -59,28 +59,59 @@ export default function Upload() {
   const [thumbUri, setThumbUri] = useState<string | null>(null);
   const [thumbBase64, setThumbBase64] = useState<string | null>(null);
   const [thumbBusy, setThumbBusy] = useState(false);
+  const [thumbOptions, setThumbOptions] = useState<
+    { uri: string; base64: string; label: string }[]
+  >([]);
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
-  const generateAutoThumb = async (videoUri: string) => {
+  const _extractFrame = async (videoUri: string, timeMs: number) => {
     try {
-      setThumbBusy(true);
-      // Try first second; fall back to frame 0 if that fails
       const { uri } = await VideoThumbnails.getThumbnailAsync(videoUri, {
-        time: 1000,
+        time: Math.max(0, Math.round(timeMs)),
         quality: 0.7,
       });
-      // Read as base64
       const resp = await fetch(uri);
       const blob = await resp.blob();
       const b64 = await blobToBase64(blob);
-      setThumbUri(uri);
-      setThumbBase64(b64);
+      return { uri, base64: b64 };
     } catch (e) {
-      // Auto-thumb is best-effort; user can pick custom
-      setThumbUri(null);
-      setThumbBase64(null);
+      return null;
+    }
+  };
+
+  // Generate 3 thumbnail options sampled from start / middle / near-end.
+  // We fall back gracefully if a frame fails (e.g. unknown duration).
+  const generateThumbnailOptions = async (videoUri: string, durationMs?: number) => {
+    setThumbBusy(true);
+    setThumbOptions([]);
+    setThumbUri(null);
+    setThumbBase64(null);
+    try {
+      // Heuristic duration if we don't have one
+      const total = durationMs && durationMs > 0 ? durationMs : 6000;
+      const targets = [
+        { ms: Math.min(1000, total * 0.1), label: "Start" },
+        { ms: Math.max(500, total * 0.5), label: "Middle" },
+        { ms: Math.max(1000, total * 0.85), label: "End" },
+      ];
+      const results: { uri: string; base64: string; label: string }[] = [];
+      for (const t of targets) {
+        const frame = await _extractFrame(videoUri, t.ms);
+        if (frame) results.push({ ...frame, label: t.label });
+      }
+      // Fallback: if everything failed, try frame 0 once
+      if (results.length === 0) {
+        const f = await _extractFrame(videoUri, 0);
+        if (f) results.push({ ...f, label: "Frame" });
+      }
+      setThumbOptions(results);
+      if (results.length > 0) {
+        // Default to the first option (Start)
+        setThumbUri(results[0].uri);
+        setThumbBase64(results[0].base64);
+      }
     } finally {
       setThumbBusy(false);
     }
@@ -148,10 +179,12 @@ export default function Upload() {
     setPickedName(inferredName);
     setPickedMime(asset.mimeType || "video/mp4");
     setPickedSize((asset as any).fileSize ?? null);
-    // Best-effort auto-thumbnail (user can override)
+    // Generate 3 thumbnail candidates from the video (best-effort)
     setThumbUri(null);
     setThumbBase64(null);
-    generateAutoThumb(asset.uri);
+    setThumbOptions([]);
+    const durMs = dur ? (dur > 1000 ? dur : dur * 1000) : undefined;
+    generateThumbnailOptions(asset.uri, durMs);
   };
 
   const onUpload = async () => {
@@ -283,55 +316,93 @@ export default function Upload() {
 
           {pickedUri ? (
             <View style={styles.thumbCard} testID="upload-thumb-card">
-              <View style={styles.thumbRow}>
-                <View style={styles.thumbPreviewWrap}>
-                  {thumbBusy ? (
-                    <View style={[styles.thumbPreview, styles.thumbPreviewLoading]}>
-                      <ActivityIndicator color={colors.brand} />
-                    </View>
-                  ) : thumbUri ? (
-                    <Image
-                      source={{ uri: thumbUri }}
-                      style={styles.thumbPreview}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <View style={[styles.thumbPreview, styles.thumbPreviewLoading]}>
-                      <Ionicons name="image-outline" size={28} color={colors.onSurfaceTertiary} />
-                    </View>
-                  )}
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.thumbTitle}>Thumbnail</Text>
-                  <Text style={styles.thumbHint}>
-                    {thumbBase64
-                      ? "Auto-generated from your video. Tap to choose your own."
-                      : "Pick a 16:9 image as the cover."}
-                  </Text>
-                  <View style={styles.thumbBtnRow}>
-                    <Pressable
-                      testID="upload-thumb-pick"
-                      onPress={pickCustomThumb}
-                      style={styles.thumbBtn}
-                    >
-                      <Ionicons name="image" size={14} color={colors.onBrand} />
-                      <Text style={styles.thumbBtnText}>Choose image</Text>
-                    </Pressable>
-                    {thumbBase64 ? (
-                      <Pressable
-                        testID="upload-thumb-regen"
-                        onPress={() => pickedUri && generateAutoThumb(pickedUri)}
-                        style={[styles.thumbBtn, styles.thumbBtnGhost]}
-                      >
-                        <Ionicons name="refresh" size={14} color={colors.onSurface} />
-                        <Text style={[styles.thumbBtnText, styles.thumbBtnTextGhost]}>
-                          Auto
-                        </Text>
-                      </Pressable>
-                    ) : null}
-                  </View>
-                </View>
+              <View style={styles.thumbHeaderRow}>
+                <Text style={styles.thumbTitle}>Choose a thumbnail</Text>
+                <Pressable
+                  testID="upload-thumb-regen"
+                  onPress={() => pickedUri && generateThumbnailOptions(pickedUri)}
+                  style={styles.thumbRegen}
+                  hitSlop={8}
+                >
+                  <Ionicons name="refresh" size={14} color={colors.onSurface} />
+                  <Text style={styles.thumbRegenText}>Refresh</Text>
+                </Pressable>
               </View>
+              <Text style={styles.thumbHint}>
+                Pick from auto-generated frames, or upload your own image.
+              </Text>
+
+              {thumbBusy ? (
+                <View style={styles.thumbLoading}>
+                  <ActivityIndicator color={colors.brand} />
+                  <Text style={styles.thumbLoadingText}>Generating previews…</Text>
+                </View>
+              ) : thumbOptions.length > 0 ? (
+                <View style={styles.thumbOptionsRow}>
+                  {thumbOptions.map((opt) => {
+                    const selected = opt.uri === thumbUri;
+                    return (
+                      <Pressable
+                        key={opt.uri}
+                        testID={`upload-thumb-option-${opt.label.toLowerCase()}`}
+                        onPress={() => {
+                          setThumbUri(opt.uri);
+                          setThumbBase64(opt.base64);
+                        }}
+                        style={[
+                          styles.thumbOption,
+                          selected && styles.thumbOptionSelected,
+                        ]}
+                      >
+                        <Image
+                          source={{ uri: opt.uri }}
+                          style={styles.thumbOptionImg}
+                          resizeMode="cover"
+                        />
+                        <View style={styles.thumbOptionFooter}>
+                          <Text
+                            style={[
+                              styles.thumbOptionLabel,
+                              selected && { color: colors.onBrand },
+                            ]}
+                          >
+                            {opt.label}
+                          </Text>
+                          {selected ? (
+                            <Ionicons
+                              name="checkmark-circle"
+                              size={14}
+                              color={colors.onBrand}
+                            />
+                          ) : null}
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : (
+                <View style={styles.thumbLoading}>
+                  <Ionicons name="image-outline" size={28} color={colors.onSurfaceTertiary} />
+                  <Text style={styles.thumbLoadingText}>
+                    Couldn't generate frames. Upload your own below.
+                  </Text>
+                </View>
+              )}
+
+              <Pressable
+                testID="upload-thumb-pick"
+                onPress={pickCustomThumb}
+                style={styles.thumbPickBtn}
+              >
+                <Ionicons name="image" size={14} color={colors.onSurface} />
+                <Text style={styles.thumbPickText}>Upload custom image</Text>
+              </Pressable>
+
+              {thumbUri && !thumbOptions.some((o) => o.uri === thumbUri) ? (
+                <Text style={styles.thumbCustomNote}>
+                  Using your custom image. Tap an auto option above to switch back.
+                </Text>
+              ) : null}
             </View>
           ) : null}
 
@@ -472,29 +543,80 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     marginBottom: spacing.lg,
   },
-  thumbRow: { flexDirection: "row", gap: spacing.md, alignItems: "flex-start" },
-  thumbPreviewWrap: {
-    width: 120,
-    aspectRatio: 16 / 9,
-    borderRadius: radius.sm,
-    overflow: "hidden",
-    backgroundColor: colors.surfaceTertiary,
-  },
-  thumbPreview: { width: "100%", height: "100%" },
-  thumbPreviewLoading: { alignItems: "center", justifyContent: "center" },
-  thumbTitle: { color: colors.onSurface, fontSize: text.base, fontWeight: "800" },
-  thumbHint: { color: colors.onSurfaceSecondary, fontSize: text.sm, marginTop: 2 },
-  thumbBtnRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm, flexWrap: "wrap" },
-  thumbBtn: {
+  thumbHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    justifyContent: "space-between",
+  },
+  thumbTitle: { color: colors.onSurface, fontSize: text.base, fontWeight: "800" },
+  thumbHint: { color: colors.onSurfaceSecondary, fontSize: text.sm, marginTop: 2 },
+  thumbRegen: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: colors.surfaceTertiary,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+  },
+  thumbRegenText: { color: colors.onSurface, fontSize: 11, fontWeight: "700" },
+  thumbLoading: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: spacing.lg,
+    gap: spacing.xs,
+  },
+  thumbLoadingText: { color: colors.onSurfaceSecondary, fontSize: text.sm },
+  thumbOptionsRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  thumbOption: {
+    flex: 1,
+    borderRadius: radius.sm,
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceTertiary,
+  },
+  thumbOptionSelected: { borderColor: colors.brand },
+  thumbOptionImg: {
+    width: "100%",
+    aspectRatio: 16 / 9,
+  },
+  thumbOptionFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    paddingVertical: 4,
     backgroundColor: colors.brand,
+  },
+  thumbOptionLabel: {
+    color: colors.onBrand,
+    fontSize: 11,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  thumbPickBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: spacing.md,
+    backgroundColor: colors.surfaceTertiary,
+    borderWidth: 1,
+    borderColor: colors.border,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderRadius: radius.pill,
   },
-  thumbBtnGhost: { backgroundColor: colors.surfaceTertiary },
-  thumbBtnText: { color: colors.onBrand, fontWeight: "700", fontSize: text.sm },
-  thumbBtnTextGhost: { color: colors.onSurface },
+  thumbPickText: { color: colors.onSurface, fontWeight: "700", fontSize: text.sm },
+  thumbCustomNote: {
+    color: colors.onSurfaceSecondary,
+    fontSize: text.sm,
+    marginTop: spacing.sm,
+    textAlign: "center",
+  },
 });

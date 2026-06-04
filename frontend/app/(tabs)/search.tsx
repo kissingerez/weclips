@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { VideoCard, VideoCardData } from "@/src/components/VideoCard";
+import { Avatar } from "@/src/components/Avatar";
 import { api } from "@/src/lib/api";
 import { colors, radius, spacing, text } from "@/src/theme";
 
@@ -20,6 +21,7 @@ type UserResult = {
   id: string;
   display_name: string;
   username?: string | null;
+  has_avatar?: boolean;
   followers: number;
 };
 
@@ -203,11 +205,12 @@ function UserRow({ user }: { user: UserResult }) {
 
   return (
     <View style={styles.userRow} testID={`user-result-${user.id}`}>
-      <View style={styles.avatar}>
-        <Text style={styles.avatarText}>
-          {(user.display_name?.[0] || "?").toUpperCase()}
-        </Text>
-      </View>
+      <Avatar
+        userId={user.id}
+        displayName={user.display_name}
+        hasAvatar={!!user.has_avatar}
+        size={48}
+      />
       <View style={{ flex: 1 }}>
         <Text style={styles.userName} numberOfLines={1}>
           {user.display_name}

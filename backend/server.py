@@ -116,6 +116,7 @@ class UserPublic(BaseModel):
     email: EmailStr
     display_name: str
     username: Optional[str] = None
+    has_avatar: bool = False
     is_subscribed: bool
     subscription_status: str
     created_at: datetime
@@ -127,6 +128,7 @@ class UserSearchResult(BaseModel):
     id: str
     display_name: str
     username: Optional[str] = None
+    has_avatar: bool = False
     followers: int = 0
 
 
@@ -140,6 +142,15 @@ class UpdateMeReq(BaseModel):
 
 class SetThumbnailReq(BaseModel):
     thumbnail_base64: str = Field(min_length=20)
+
+
+class SetAvatarReq(BaseModel):
+    avatar_base64: str = Field(min_length=20)
+
+
+class UpdateVideoReq(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    description: Optional[str] = Field(default=None, max_length=2000)
 
 
 class VideoUploadReq(BaseModel):
@@ -298,6 +309,7 @@ def user_to_public(u: dict) -> UserPublic:
         email=u["email"],
         display_name=u["display_name"],
         username=u.get("username"),
+        has_avatar=bool(u.get("avatar_base64")),
         is_subscribed=bool(u.get("is_subscribed", False)),
         subscription_status=u.get("subscription_status", "none"),
         created_at=u["created_at"],
@@ -400,7 +412,7 @@ async def search_users(
                 },
             ]
         },
-        {"_id": 1, "display_name": 1, "username": 1},
+        {"_id": 1, "display_name": 1, "username": 1, "avatar_base64": 1},
     ).limit(min(max(limit, 1), 50))
     results: List[UserSearchResult] = []
     async for u in cursor:
@@ -412,6 +424,7 @@ async def search_users(
                 id=u["_id"],
                 display_name=u.get("display_name") or "User",
                 username=u.get("username"),
+                has_avatar=bool(u.get("avatar_base64")),
                 followers=followers,
             )
         )
@@ -421,7 +434,8 @@ async def search_users(
 @api.get("/users/{target_user_id}", response_model=UserSearchResult)
 async def get_user_public(target_user_id: str, user: dict = Depends(get_current_user)):
     u = await users_col.find_one(
-        {"_id": target_user_id}, {"display_name": 1, "username": 1}
+        {"_id": target_user_id},
+        {"display_name": 1, "username": 1, "avatar_base64": 1},
     )
     if not u:
         raise HTTPException(status_code=404, detail="User not found")
@@ -430,8 +444,46 @@ async def get_user_public(target_user_id: str, user: dict = Depends(get_current_
         id=u["_id"],
         display_name=u.get("display_name") or "User",
         username=u.get("username"),
+        has_avatar=bool(u.get("avatar_base64")),
         followers=followers,
     )
+
+
+@api.get("/users/{target_user_id}/avatar")
+async def get_user_avatar(target_user_id: str):
+    u = await users_col.find_one({"_id": target_user_id}, {"avatar_base64": 1})
+    if not u or not u.get("avatar_base64"):
+        raise HTTPException(status_code=404, detail="No avatar")
+    try:
+        data = base64.b64decode(u["avatar_base64"])
+    except Exception:
+        raise HTTPException(status_code=500, detail="Corrupt avatar")
+    return Response(
+        content=data,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@api.put("/auth/me/avatar")
+async def set_my_avatar(body: SetAvatarReq, user: dict = Depends(get_current_user)):
+    raw = body.avatar_base64
+    if "," in raw and raw.startswith("data:"):
+        raw = raw.split(",", 1)[1]
+    if len(raw) > 600_000:
+        raise HTTPException(status_code=413, detail="Avatar too large (max ~400KB)")
+    try:
+        base64.b64decode(raw, validate=True)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 image data")
+    await users_col.update_one({"_id": user["_id"]}, {"$set": {"avatar_base64": raw}})
+    return {"ok": True, "has_avatar": True}
+
+
+@api.delete("/auth/me/avatar")
+async def clear_my_avatar(user: dict = Depends(get_current_user)):
+    await users_col.update_one({"_id": user["_id"]}, {"$unset": {"avatar_base64": ""}})
+    return {"ok": True, "has_avatar": False}
 
 
 @api.post("/auth/login", response_model=TokenResp)
@@ -1271,6 +1323,33 @@ async def delete_comment(
         raise HTTPException(status_code=403, detail="Not allowed to delete this comment")
     await comments_col.delete_one({"_id": comment_id})
     return {"deleted": True, "id": comment_id}
+
+
+@api.patch("/videos/{video_id}", response_model=VideoPublic)
+async def update_video(
+    video_id: str,
+    body: UpdateVideoReq,
+    user: dict = Depends(get_current_user),
+):
+    v = await videos_col.find_one({"_id": video_id})
+    if not v:
+        raise HTTPException(status_code=404, detail="Video not found")
+    if v.get("creator_id") != user["_id"]:
+        raise HTTPException(status_code=403, detail="Only the creator can edit this video")
+
+    updates: dict = {}
+    if body.title is not None:
+        t = body.title.strip()
+        if not t:
+            raise HTTPException(status_code=400, detail="Title cannot be empty")
+        updates["title"] = t
+    if body.description is not None:
+        updates["description"] = body.description.strip()
+
+    if updates:
+        await videos_col.update_one({"_id": video_id}, {"$set": updates})
+        v.update(updates)
+    return video_to_public(v)
 
 
 @api.delete("/videos/{video_id}")
