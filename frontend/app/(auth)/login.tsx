@@ -86,6 +86,12 @@ export default function Login() {
                 <Text style={styles.link}>Create an account</Text>
               </Pressable>
             </Link>
+
+            <Link href="/(auth)/forgot" asChild>
+              <Pressable testID="login-forgot-link" style={styles.forgotRow} hitSlop={10}>
+                <Text style={styles.link}>Forgot password?</Text>
+              </Pressable>
+            </Link>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -134,6 +140,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   linkRow: { flexDirection: "row", justifyContent: "center", marginTop: spacing.lg },
+  forgotRow: { alignItems: "center", marginTop: spacing.md },
   linkMuted: { color: colors.onSurfaceSecondary },
   link: { color: colors.brand, fontWeight: "700" },
 });

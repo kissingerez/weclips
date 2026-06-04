@@ -1,6 +1,8 @@
 import os
 import uuid
 import base64
+import hashlib
+import secrets
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -34,6 +36,10 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", 
 RC_WEBHOOK_SECRET = os.environ.get("REVENUECAT_WEBHOOK_SECRET", "")
 RC_REST_API_KEY = os.environ.get("REVENUECAT_REST_API_KEY", "")
 RC_ENTITLEMENT = os.environ.get("REVENUECAT_ENTITLEMENT_ID", "premium")
+APP_PUBLIC_URL = os.environ.get("APP_PUBLIC_URL", "")
+SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
+SENDGRID_SENDER_EMAIL = os.environ.get("SENDGRID_SENDER_EMAIL", "")
+PASSWORD_RESET_TTL_MIN = int(os.environ.get("PASSWORD_RESET_TTL_MIN", "15"))
 
 UPLOAD_DIR = ROOT_DIR / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -67,6 +73,7 @@ users_col = db["users"]
 videos_col = db["videos"]
 comments_col = db["comments"]
 rc_events_col = db["rc_events"]
+password_resets_col = db["password_resets"]
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer = HTTPBearer(auto_error=False)
@@ -286,6 +293,128 @@ async def login(body: LoginReq):
 @api.get("/auth/me", response_model=UserPublic)
 async def me(user: dict = Depends(get_current_user)):
     return user_to_public(user)
+
+
+# --- Password reset ---
+class ForgotPasswordReq(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordReq(BaseModel):
+    token: str = Field(min_length=20)
+    new_password: str = Field(min_length=6)
+
+
+def _hash_token(t: str) -> str:
+    return hashlib.sha256(t.encode("utf-8")).hexdigest()
+
+
+def _send_password_reset_email(to_email: str, reset_url: str) -> bool:
+    """Send via SendGrid if configured. Returns True on success, False otherwise."""
+    if not SENDGRID_API_KEY or not SENDGRID_SENDER_EMAIL:
+        logger.warning("SendGrid not configured — skipping email send")
+        return False
+    try:
+        from sendgrid import SendGridAPIClient
+        from sendgrid.helpers.mail import Mail
+        html = f"""
+        <div style="font-family:-apple-system,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px;">
+          <h2 style="color:#0F172A;">Reset your WeClips password</h2>
+          <p style="color:#475569;line-height:1.5;">
+            We received a request to reset the password for your WeClips account.
+            This link is valid for {PASSWORD_RESET_TTL_MIN} minutes.
+          </p>
+          <p style="margin:24px 0;">
+            <a href="{reset_url}" style="background:#89CFF0;color:#0A1929;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:700;">
+              Reset password
+            </a>
+          </p>
+          <p style="color:#64748B;font-size:13px;">
+            If you didn't request this, you can safely ignore this email.
+          </p>
+          <p style="color:#94A3B8;font-size:12px;margin-top:32px;">
+            Or paste this link into your browser:<br>{reset_url}
+          </p>
+        </div>
+        """
+        msg = Mail(
+            from_email=SENDGRID_SENDER_EMAIL,
+            to_emails=to_email,
+            subject="Reset your WeClips password",
+            html_content=html,
+        )
+        resp = SendGridAPIClient(SENDGRID_API_KEY).send(msg)
+        return 200 <= resp.status_code < 300
+    except Exception as e:
+        logger.exception(f"SendGrid send failed: {e}")
+        return False
+
+
+@api.post("/auth/forgot-password")
+async def forgot_password(body: ForgotPasswordReq):
+    email = body.email.lower()
+    user = await users_col.find_one({"email": email}, {"_id": 1, "email": 1})
+    # Always 200 — avoid leaking which emails exist
+    resp: dict = {"status": "ok"}
+    if not user:
+        return resp
+
+    token = secrets.token_urlsafe(32)
+    token_hash = _hash_token(token)
+    expires_at = now_utc() + timedelta(minutes=PASSWORD_RESET_TTL_MIN)
+    await password_resets_col.insert_one(
+        {
+            "_id": str(uuid.uuid4()),
+            "token_hash": token_hash,
+            "user_id": user["_id"],
+            "email": email,
+            "expires_at": expires_at,
+            "used": False,
+            "created_at": now_utc(),
+        }
+    )
+
+    base = APP_PUBLIC_URL.rstrip("/")
+    reset_url = f"{base}/reset?token={token}"
+
+    sent = _send_password_reset_email(email, reset_url)
+    if not sent:
+        # No email service configured (preview mode) — return the URL so the
+        # user can still complete the reset. Disabled automatically once
+        # SENDGRID_API_KEY + SENDGRID_SENDER_EMAIL are set in production.
+        resp["dev_reset_url"] = reset_url
+        resp["dev_token"] = token
+        logger.info(f"PASSWORD RESET (dev) for {email}: {reset_url}")
+    return resp
+
+
+@api.post("/auth/reset-password")
+async def reset_password(body: ResetPasswordReq):
+    token_hash = _hash_token(body.token)
+    record = await password_resets_col.find_one({"token_hash": token_hash})
+    if not record:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link")
+    if record.get("used"):
+        raise HTTPException(status_code=400, detail="This reset link has already been used")
+    expires_at = record.get("expires_at")
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if not expires_at or expires_at < now_utc():
+        raise HTTPException(status_code=400, detail="This reset link has expired")
+
+    user_id = record["user_id"]
+    new_hash = hash_password(body.new_password)
+    await users_col.update_one({"_id": user_id}, {"$set": {"password_hash": new_hash}})
+    await password_resets_col.update_one(
+        {"_id": record["_id"]},
+        {"$set": {"used": True, "used_at": now_utc()}},
+    )
+    # Invalidate all other outstanding reset tokens for this user
+    await password_resets_col.update_many(
+        {"user_id": user_id, "used": False},
+        {"$set": {"used": True, "used_at": now_utc()}},
+    )
+    return {"status": "ok"}
 
 
 # --- Routes: Subscription (RevenueCat-backed) ---
