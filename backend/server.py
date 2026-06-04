@@ -8,8 +8,8 @@ from typing import List, Optional
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header, Request
-from fastapi.responses import Response
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header, Request, UploadFile, File, Form
+from fastapi.responses import Response, FileResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -32,6 +32,10 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", 
 RC_WEBHOOK_SECRET = os.environ.get("REVENUECAT_WEBHOOK_SECRET", "")
 RC_REST_API_KEY = os.environ.get("REVENUECAT_REST_API_KEY", "")
 RC_ENTITLEMENT = os.environ.get("REVENUECAT_ENTITLEMENT_ID", "premium")
+
+UPLOAD_DIR = ROOT_DIR / "uploads"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+CHUNK_SIZE = 1024 * 1024  # 1 MB
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
@@ -363,31 +367,61 @@ async def revenuecat_webhook(
 
 # --- Routes: Videos ---
 @api.post("/videos", response_model=VideoPublic)
-async def upload_video(body: VideoUploadReq, user: dict = Depends(get_current_user)):
-    if not body.no_ai_confirmed:
+async def upload_video(
+    title: str = Form(..., min_length=1, max_length=120),
+    description: str = Form("", max_length=2000),
+    mime_type: str = Form("video/mp4"),
+    no_ai_confirmed: bool = Form(...),
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user),
+):
+    if not no_ai_confirmed:
         raise HTTPException(status_code=400, detail="You must confirm the WeClips content policy")
     if not user.get("is_subscribed", False):
         raise HTTPException(status_code=402, detail="Active subscription required to upload")
 
-    try:
-        raw = base64.b64decode(body.content_base64, validate=False)
-        if len(raw) == 0:
-            raise ValueError("empty")
-        if len(raw) > 60 * 1024 * 1024:
-            raise HTTPException(status_code=413, detail="Video too large (max ~60MB)")
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid base64 video content")
-
     video_id = str(uuid.uuid4())
+    # Pick a sensible extension from the uploaded filename or mime type
+    ext = ""
+    fn = (file.filename or "").strip()
+    if "." in fn:
+        ext = "." + fn.rsplit(".", 1)[-1].lower()[:5]
+    elif mime_type.startswith("video/"):
+        ext = "." + mime_type.split("/", 1)[1].lower()[:5]
+    file_path = UPLOAD_DIR / f"{video_id}{ext}"
+
+    bytes_written = 0
+    try:
+        with open(file_path, "wb") as out:
+            while True:
+                chunk = await file.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                out.write(chunk)
+                bytes_written += len(chunk)
+    except Exception as e:
+        # Clean up partial file
+        try:
+            file_path.unlink()
+        except Exception:
+            pass
+        logger.exception("Upload write failed")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {e}")
+
+    if bytes_written == 0:
+        try:
+            file_path.unlink()
+        except Exception:
+            pass
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
     doc = {
         "_id": video_id,
-        "title": body.title.strip(),
-        "description": body.description.strip(),
-        "mime_type": body.mime_type,
-        "content_base64": body.content_base64,
-        "thumbnail_base64": body.thumbnail_base64,
+        "title": title.strip(),
+        "description": description.strip(),
+        "mime_type": mime_type or "video/mp4",
+        "file_path": str(file_path),
+        "file_size": bytes_written,
         "creator_id": user["_id"],
         "creator_name": user["display_name"],
         "views": 0,
@@ -444,15 +478,88 @@ async def get_video(video_id: str):
 
 
 @api.get("/videos/{video_id}/stream")
-async def stream_video(video_id: str):
-    v = await videos_col.find_one({"_id": video_id}, {"content_base64": 1, "mime_type": 1})
+async def stream_video(video_id: str, request: Request):
+    v = await videos_col.find_one(
+        {"_id": video_id},
+        {"file_path": 1, "mime_type": 1, "file_size": 1, "content_base64": 1},
+    )
     if not v:
         raise HTTPException(status_code=404, detail="Not found")
-    try:
-        data = base64.b64decode(v["content_base64"])
-    except Exception:
-        raise HTTPException(status_code=500, detail="Corrupt video")
-    return Response(content=data, media_type=v.get("mime_type", "video/mp4"))
+    media_type = v.get("mime_type", "video/mp4")
+
+    fp = v.get("file_path")
+    if fp and os.path.isfile(fp):
+        file_size = os.path.getsize(fp)
+        range_header = request.headers.get("range")
+
+        if not range_header:
+            # No Range: stream the whole file
+            def iter_full():
+                with open(fp, "rb") as f:
+                    while True:
+                        chunk = f.read(CHUNK_SIZE)
+                        if not chunk:
+                            break
+                        yield chunk
+            return StreamingResponse(
+                iter_full(),
+                media_type=media_type,
+                headers={
+                    "Content-Length": str(file_size),
+                    "Accept-Ranges": "bytes",
+                    "Cache-Control": "public, max-age=3600",
+                },
+            )
+
+        # Parse "bytes=START-END"
+        try:
+            units, _, range_str = range_header.partition("=")
+            if units.strip() != "bytes":
+                raise ValueError("only bytes ranges supported")
+            start_str, _, end_str = range_str.partition("-")
+            start = int(start_str) if start_str else 0
+            end = int(end_str) if end_str else file_size - 1
+            if end >= file_size:
+                end = file_size - 1
+            if start < 0 or start > end:
+                raise ValueError("invalid range")
+        except Exception:
+            raise HTTPException(status_code=416, detail="Invalid Range header")
+
+        chunk_len = end - start + 1
+
+        def iter_range():
+            with open(fp, "rb") as f:
+                f.seek(start)
+                remaining = chunk_len
+                while remaining > 0:
+                    read = f.read(min(CHUNK_SIZE, remaining))
+                    if not read:
+                        break
+                    yield read
+                    remaining -= len(read)
+
+        return StreamingResponse(
+            iter_range(),
+            status_code=206,
+            media_type=media_type,
+            headers={
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Content-Length": str(chunk_len),
+                "Accept-Ranges": "bytes",
+                "Cache-Control": "public, max-age=3600",
+            },
+        )
+
+    # Legacy fallback: tiny base64 videos (no Range support)
+    if v.get("content_base64"):
+        try:
+            data = base64.b64decode(v["content_base64"])
+        except Exception:
+            raise HTTPException(status_code=500, detail="Corrupt video")
+        return Response(content=data, media_type=media_type)
+
+    raise HTTPException(status_code=404, detail="Video file missing")
 
 
 @api.get("/videos/{video_id}/thumbnail")

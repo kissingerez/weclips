@@ -15,8 +15,21 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useAuth } from "@/src/lib/auth";
-import { api } from "@/src/lib/api";
+import { API_BASE } from "@/src/lib/api";
+import { tokenStorage } from "@/src/lib/tokenStorage";
 import { colors, radius, spacing, text } from "@/src/theme";
+
+function formatBytes(n: number | null): string {
+  if (!n || n <= 0) return "";
+  const units = ["B", "KB", "MB", "GB"];
+  let i = 0;
+  let v = n;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`;
+}
 
 export default function Upload() {
   const { user, refresh } = useAuth();
@@ -25,8 +38,9 @@ export default function Upload() {
   const [desc, setDesc] = useState("");
   const [noAi, setNoAi] = useState(false);
   const [pickedUri, setPickedUri] = useState<string | null>(null);
-  const [pickedBase64, setPickedBase64] = useState<string | null>(null);
+  const [pickedName, setPickedName] = useState<string>("video.mp4");
   const [pickedMime, setPickedMime] = useState<string>("video/mp4");
+  const [pickedSize, setPickedSize] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -40,66 +54,88 @@ export default function Upload() {
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-      base64: false,
-      quality: 0.7,
-      videoMaxDuration: 120,
+      quality: 1,
+      // no videoMaxDuration -> allow long videos
     });
     if (result.canceled || !result.assets?.[0]) return;
     const asset = result.assets[0];
-    try {
-      // Universal: fetch the asset URI and read as base64 via FileReader
-      const resp = await fetch(asset.uri);
-      const blob = await resp.blob();
-      const b64: string = await new Promise<string>((resolve, reject) => {
-        const fr = new FileReader();
-        fr.onload = () => {
-          const r = fr.result as string;
-          resolve((r || "").split(",")[1] || "");
-        };
-        fr.onerror = reject;
-        fr.readAsDataURL(blob);
-      });
-      setPickedUri(asset.uri);
-      setPickedBase64(b64);
-      setPickedMime(asset.mimeType || "video/mp4");
-    } catch (e: any) {
-      setErr("Could not read selected video.");
-    }
+    setPickedUri(asset.uri);
+    const inferredName =
+      (asset as any).fileName ||
+      asset.uri.split("/").pop()?.split("?")[0] ||
+      "video.mp4";
+    setPickedName(inferredName);
+    setPickedMime(asset.mimeType || "video/mp4");
+    setPickedSize((asset as any).fileSize ?? null);
   };
 
   const onUpload = async () => {
     setErr(null);
     setMsg(null);
     if (!title.trim()) return setErr("Title is required.");
-    if (!pickedBase64) return setErr("Select a video first.");
-    if (!noAi) return setErr("You must confirm the No-AI policy.");
+    if (!pickedUri) return setErr("Select a video first.");
+    if (!noAi) return setErr("You must confirm the content policy.");
     if (!user?.is_subscribed) {
       router.push("/paywall");
       return;
     }
     setUploading(true);
     try {
-      await api.post("/videos", {
-        title: title.trim(),
-        description: desc.trim(),
-        content_base64: pickedBase64,
-        mime_type: pickedMime,
-        no_ai_confirmed: true,
+      const form = new FormData();
+      form.append("title", title.trim());
+      form.append("description", desc.trim());
+      form.append("mime_type", pickedMime);
+      form.append("no_ai_confirmed", "true");
+
+      if (Platform.OS === "web") {
+        // Pull the blob from the picker's blob: URL and attach directly
+        const resp = await fetch(pickedUri);
+        const blob = await resp.blob();
+        form.append("file", blob, pickedName);
+      } else {
+        // React Native: pass {uri, name, type} so the network layer streams from disk
+        form.append("file", {
+          uri: pickedUri,
+          name: pickedName,
+          type: pickedMime,
+        } as any);
+      }
+
+      const tok = await tokenStorage.get();
+      const res = await fetch(`${API_BASE}/videos`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          ...(tok ? { Authorization: `Bearer ${tok}` } : {}),
+        },
+        body: form as any,
       });
+
+      if (res.status === 402) {
+        router.push("/paywall");
+        return;
+      }
+      if (!res.ok) {
+        const t = await res.text();
+        let detail = `Upload failed (${res.status})`;
+        try {
+          const j = JSON.parse(t);
+          detail = j?.detail || detail;
+        } catch {}
+        throw new Error(detail);
+      }
+
       setMsg("Upload complete!");
       setTitle("");
       setDesc("");
       setPickedUri(null);
-      setPickedBase64(null);
+      setPickedName("video.mp4");
+      setPickedSize(null);
       setNoAi(false);
       await refresh();
       setTimeout(() => router.push("/(tabs)/home"), 600);
     } catch (e: any) {
-      if (e?.status === 402) {
-        router.push("/paywall");
-      } else {
-        setErr(e?.message ?? "Upload failed");
-      }
+      setErr(e?.message ?? "Upload failed");
     } finally {
       setUploading(false);
     }
@@ -140,10 +176,11 @@ export default function Upload() {
             </Text>
             {pickedUri ? (
               <Text style={styles.dropSub} numberOfLines={1}>
-                {pickedMime}
+                {pickedName}
+                {pickedSize ? `  ·  ${formatBytes(pickedSize)}` : ""}
               </Text>
             ) : (
-              <Text style={styles.dropSub}>Max ~60MB. MP4 recommended.</Text>
+              <Text style={styles.dropSub}>Any size, any length. MP4 recommended.</Text>
             )}
           </Pressable>
 
