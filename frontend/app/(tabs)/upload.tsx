@@ -54,8 +54,11 @@ export default function Upload() {
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-      quality: 1,
-      // no videoMaxDuration -> allow long videos
+      // Preserve original resolution/bitrate — default downscales to 720p medium-quality on iOS
+      videoQuality: ImagePicker.UIImagePickerControllerQualityType.High,
+      videoExportPreset: ImagePicker.VideoExportPreset.Passthrough,
+      allowsEditing: false,
+      // `quality` is for images only; intentionally omitted
     });
     if (result.canceled || !result.assets?.[0]) return;
     const asset = result.assets[0];
