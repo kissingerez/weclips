@@ -328,6 +328,14 @@ def user_to_public(u: dict) -> UserPublic:
 
 
 def video_to_public(v: dict) -> VideoPublic:
+    # Be tolerant of projections that strip thumbnail_base64 — many list
+    # endpoints exclude it for size. They may instead include a computed
+    # `has_thumbnail` field via aggregation, or we infer from the raw blob
+    # when present.
+    if "has_thumbnail" in v:
+        has_thumb = bool(v.get("has_thumbnail"))
+    else:
+        has_thumb = bool(v.get("thumbnail_base64"))
     return VideoPublic(
         id=v["_id"],
         title=v["title"],
@@ -338,7 +346,7 @@ def video_to_public(v: dict) -> VideoPublic:
         creator_username=v.get("creator_username"),
         views=int(v.get("views", 0)),
         likes=int(v.get("likes", 0)),
-        has_thumbnail=bool(v.get("thumbnail_base64")),
+        has_thumbnail=has_thumb,
         thumbnail_updated_at=v.get("thumbnail_updated_at"),
         created_at=v["created_at"],
     )
@@ -1395,7 +1403,13 @@ async def set_thumbnail(
 
     await videos_col.update_one(
         {"_id": video_id},
-        {"$set": {"thumbnail_base64": raw, "thumbnail_updated_at": now_utc()}},
+        {
+            "$set": {
+                "thumbnail_base64": raw,
+                "thumbnail_updated_at": now_utc(),
+                "has_thumbnail": True,
+            }
+        },
     )
     return {"ok": True, "has_thumbnail": True}
 
@@ -1718,6 +1732,41 @@ async def startup():
                 pass
     except Exception as e:
         logger.warning("Username backfill failed: %s", e)
+
+    # Backfill thumbnail_updated_at for videos that already have a thumbnail
+    # but no timestamp (so VideoCard's ?v= cache-bust works for them too).
+    try:
+        await videos_col.update_many(
+            {
+                "thumbnail_base64": {"$exists": True, "$ne": None},
+                "$or": [
+                    {"thumbnail_updated_at": {"$exists": False}},
+                    {"thumbnail_updated_at": None},
+                ],
+            },
+            [{"$set": {"thumbnail_updated_at": "$created_at"}}],
+        )
+    except Exception as e:
+        logger.warning("thumbnail_updated_at backfill failed: %s", e)
+
+    # Backfill the explicit has_thumbnail boolean so list endpoints that strip
+    # the heavy thumbnail_base64 blob still report has_thumbnail correctly.
+    try:
+        await videos_col.update_many(
+            {"thumbnail_base64": {"$exists": True, "$ne": None}},
+            {"$set": {"has_thumbnail": True}},
+        )
+        await videos_col.update_many(
+            {
+                "$or": [
+                    {"thumbnail_base64": {"$exists": False}},
+                    {"thumbnail_base64": None},
+                ]
+            },
+            {"$set": {"has_thumbnail": False}},
+        )
+    except Exception as e:
+        logger.warning("has_thumbnail backfill failed: %s", e)
 
     # Backfill creator_username on existing videos
     try:

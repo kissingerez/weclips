@@ -114,8 +114,6 @@ export default function EditVideo() {
     try {
       await api.put(`/videos/${id}/thumbnail`, { thumbnail_base64: b64 });
       setThumbVer(Date.now());
-      setOk("Thumbnail updated.");
-      setToast("Thumbnail saved");
     } catch (e: any) {
       setErr(e?.message || "Failed to update thumbnail");
     }
@@ -149,8 +147,6 @@ export default function EditVideo() {
       await api.put(`/videos/${id}/thumbnail`, { thumbnail_base64: opt.base64 });
       setNewThumbUri(`data:image/jpeg;base64,${opt.base64}`);
       setThumbVer(Date.now());
-      setOk(`Thumbnail set from ${opt.label}.`);
-      setToast("Thumbnail saved");
     } catch (e: any) {
       setErr(e?.message || "Failed to update thumbnail");
     }
@@ -167,7 +163,6 @@ export default function EditVideo() {
     setSaving(true);
     try {
       await api.patch(`/videos/${id}`, { title: t, description: desc.trim() });
-      setOk("Saved.");
       setToast("Saved");
     } catch (e: any) {
       setErr(e?.message || "Save failed");
@@ -231,7 +226,6 @@ export default function EditVideo() {
       >
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
           {err ? <Text style={styles.error} testID="edit-video-error">{err}</Text> : null}
-          {ok ? <Text style={styles.success} testID="edit-video-success">{ok}</Text> : null}
 
           <Text style={styles.label}>Thumbnail</Text>
           <View style={styles.thumbWrap}>
@@ -378,6 +372,7 @@ export default function EditVideo() {
       <Toast
         message={toast}
         variant="success"
+        durationMs={1500}
         onHide={() => setToast(null)}
         testID="edit-video-toast"
       />

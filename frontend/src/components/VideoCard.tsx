@@ -21,11 +21,11 @@ export type VideoCardData = {
 export const VideoCard: React.FC<{ video: VideoCardData }> = ({ video }) => {
   const router = useRouter();
   const { user } = useAuth();
-  const cacheBust = video.thumbnail_updated_at
-    ? `?v=${encodeURIComponent(video.thumbnail_updated_at)}`
-    : "";
+  // Always cache-bust the thumbnail URL. Falls back to created_at when the
+  // dedicated thumbnail_updated_at is missing (legacy rows).
+  const bust = video.thumbnail_updated_at || video.created_at || "";
   const thumb = video.has_thumbnail
-    ? `${API_BASE}/videos/${video.id}/thumbnail${cacheBust}`
+    ? `${API_BASE}/videos/${video.id}/thumbnail?v=${encodeURIComponent(bust)}`
     : null;
   const locked = !user?.is_subscribed;
 

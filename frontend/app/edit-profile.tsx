@@ -17,6 +17,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useAuth } from "@/src/lib/auth";
 import { api, ApiError } from "@/src/lib/api";
 import { Avatar } from "@/src/components/Avatar";
+import { Toast } from "@/src/components/Toast";
 import { colors, radius, spacing, text } from "@/src/theme";
 
 function blobToBase64(blob: Blob): Promise<string> {
@@ -46,10 +47,10 @@ export default function EditProfile() {
 
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [ok, setOk] = useState<string | null>(null);
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [avatarVer, setAvatarVer] = useState(0);
   const [avatarBusy, setAvatarBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
   const pickAvatar = async () => {
     setErr(null);
@@ -85,7 +86,7 @@ export default function EditProfile() {
       setAvatarUri(asset.uri);
       setAvatarVer(Date.now());
       await refresh();
-      setOk("Profile picture updated.");
+      setToast("Profile picture updated");
     } catch (e: any) {
       setErr(e?.message || "Could not upload picture");
     } finally {
@@ -100,7 +101,7 @@ export default function EditProfile() {
       setAvatarUri(null);
       setAvatarVer(Date.now());
       await refresh();
-      setOk("Profile picture removed.");
+      setToast("Profile picture removed");
     } catch (e: any) {
       setErr(e?.message || "Could not remove picture");
     } finally {
@@ -119,7 +120,6 @@ export default function EditProfile() {
 
   const onSave = async () => {
     setErr(null);
-    setOk(null);
 
     const trimmedName = displayName.trim();
     const u = username.trim().replace(/^@/, "").toLowerCase();
@@ -164,7 +164,7 @@ export default function EditProfile() {
     }
 
     if (Object.keys(body).length === 0) {
-      setOk("No changes to save.");
+      setToast("No changes to save");
       return;
     }
 
@@ -175,7 +175,7 @@ export default function EditProfile() {
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      setOk("Profile updated.");
+      setToast("Saved");
     } catch (e: any) {
       if (e instanceof ApiError) setErr(e.message);
       else setErr(e?.message || "Update failed");
@@ -205,11 +205,6 @@ export default function EditProfile() {
           {err ? (
             <Text style={styles.error} testID="edit-error">
               {err}
-            </Text>
-          ) : null}
-          {ok ? (
-            <Text style={styles.success} testID="edit-success">
-              {ok}
             </Text>
           ) : null}
 
@@ -365,6 +360,13 @@ export default function EditProfile() {
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
+      <Toast
+        message={toast}
+        variant="success"
+        durationMs={1500}
+        onHide={() => setToast(null)}
+        testID="edit-profile-toast"
+      />
     </SafeAreaView>
   );
 }
