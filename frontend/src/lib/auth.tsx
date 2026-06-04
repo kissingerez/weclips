@@ -10,6 +10,7 @@ export type Me = {
   bio?: string | null;
   has_avatar?: boolean;
   is_founder?: boolean;
+  email_public?: boolean;
   followers_hidden?: boolean;
   followers?: number;
   following?: number;

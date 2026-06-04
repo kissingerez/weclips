@@ -35,6 +35,8 @@ type Comment = {
   user_id: string;
   user_name: string;
   text: string;
+  likes?: number;
+  liked?: boolean;
   created_at: string;
 };
 
@@ -341,6 +343,39 @@ export default function VideoScreen() {
                   )}
                 </View>
                 <Text style={styles.commentText}>{item.text}</Text>
+                <Pressable
+                  testID={`comment-like-${item.id}`}
+                  onPress={async () => {
+                    try {
+                      const r = await api.post<{ liked: boolean; likes: number }>(
+                        `/videos/${id}/comments/${item.id}/like`
+                      );
+                      setComments((prev) =>
+                        prev.map((c) =>
+                          c.id === item.id
+                            ? { ...c, liked: r.liked, likes: r.likes }
+                            : c
+                        )
+                      );
+                    } catch {}
+                  }}
+                  style={styles.commentLikeBtn}
+                  hitSlop={8}
+                >
+                  <Ionicons
+                    name={item.liked ? "heart" : "heart-outline"}
+                    size={14}
+                    color={item.liked ? colors.brand : colors.onSurfaceSecondary}
+                  />
+                  <Text
+                    style={[
+                      styles.commentLikeText,
+                      item.liked && { color: colors.brand, fontWeight: "800" },
+                    ]}
+                  >
+                    {item.likes ?? 0}
+                  </Text>
+                </Pressable>
               </View>
             );
           }}
@@ -383,6 +418,8 @@ const styles = StyleSheet.create({
   commentAuthor: { color: colors.onSurface, fontWeight: "700" },
   commentDelete: { padding: 4 },
   commentText: { color: colors.onSurfaceSecondary, fontSize: text.base },
+  commentLikeBtn: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: spacing.xs, alignSelf: "flex-start", paddingVertical: 2 },
+  commentLikeText: { color: colors.onSurfaceSecondary, fontSize: 12, fontWeight: "600" },
   noComments: { color: colors.onSurfaceTertiary, padding: spacing.lg, textAlign: "center" },
   errText: { color: colors.onSurface, fontSize: text.lg, marginBottom: spacing.md },
   backBtn: { backgroundColor: colors.brand, paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderRadius: radius.md },

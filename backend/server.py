@@ -128,6 +128,7 @@ class UserPublic(BaseModel):
     following: int = 0
     is_subscribed: bool
     is_founder: bool = False
+    email_public: bool = False
     subscription_status: str
     created_at: datetime
     deletion_pending: bool = False
@@ -150,6 +151,7 @@ class UpdateMeReq(BaseModel):
     bio: Optional[str] = Field(default=None, max_length=300)
     email: Optional[EmailStr] = None
     followers_hidden: Optional[bool] = None
+    email_public: Optional[bool] = None
     current_password: Optional[str] = None
     new_password: Optional[str] = Field(default=None, min_length=6)
 
@@ -201,6 +203,8 @@ class CommentPublic(BaseModel):
     user_id: str
     user_name: str
     text: str
+    likes: int = 0
+    liked: bool = False
     created_at: datetime
 
 
@@ -331,6 +335,7 @@ def user_to_public(u: dict, *, followers: int = 0, following: int = 0) -> UserPu
         following=following,
         is_subscribed=bool(u.get("is_subscribed", False)),
         is_founder=bool(u.get("is_founder", False)),
+        email_public=bool(u.get("email_public", False)),
         subscription_status=u.get("subscription_status", "none"),
         created_at=u["created_at"],
         deletion_pending=deletion_pending,
@@ -675,6 +680,10 @@ async def update_me(body: UpdateMeReq, user: dict = Depends(get_current_user)):
     # Followers visibility toggle
     if body.followers_hidden is not None:
         updates["followers_hidden"] = bool(body.followers_hidden)
+
+    # Email visibility toggle
+    if body.email_public is not None:
+        updates["email_public"] = bool(body.email_public)
 
     # Email
     if body.email is not None:
@@ -1565,6 +1574,7 @@ async def list_comments(video_id: str, user: dict = Depends(require_subscriber))
     cursor = comments_col.find({"video_id": video_id}).sort("created_at", -1).limit(200)
     out = []
     async for c in cursor:
+        liked_by = c.get("liked_by", []) or []
         out.append(
             CommentPublic(
                 id=c["_id"],
@@ -1572,10 +1582,38 @@ async def list_comments(video_id: str, user: dict = Depends(require_subscriber))
                 user_id=c["user_id"],
                 user_name=c["user_name"],
                 text=c["text"],
+                likes=int(c.get("likes", 0)),
+                liked=user["_id"] in liked_by,
                 created_at=c["created_at"],
             )
         )
     return out
+
+
+@api.post("/videos/{video_id}/comments/{comment_id}/like")
+async def like_comment(
+    video_id: str,
+    comment_id: str,
+    user: dict = Depends(require_subscriber),
+):
+    c = await comments_col.find_one(
+        {"_id": comment_id, "video_id": video_id},
+        {"liked_by": 1, "likes": 1, "user_id": 1},
+    )
+    if not c:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    liked_by = c.get("liked_by", []) or []
+    if user["_id"] in liked_by:
+        await comments_col.update_one(
+            {"_id": comment_id},
+            {"$pull": {"liked_by": user["_id"]}, "$inc": {"likes": -1}},
+        )
+        return {"liked": False, "likes": max(0, int(c.get("likes", 0)) - 1)}
+    await comments_col.update_one(
+        {"_id": comment_id},
+        {"$addToSet": {"liked_by": user["_id"]}, "$inc": {"likes": 1}},
+    )
+    return {"liked": True, "likes": int(c.get("likes", 0)) + 1}
 
 
 @api.post("/videos/{video_id}/comments", response_model=CommentPublic)

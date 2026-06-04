@@ -95,7 +95,12 @@ export default function Home() {
           testID="home-video-list"
           data={videos}
           keyExtractor={(v) => v.id}
-          renderItem={({ item }) => <VideoCard video={item} />}
+          renderItem={({ item }) => (
+            <VideoCard
+              video={item}
+              onDeleted={(id) => setVideos((prev) => prev.filter((v) => v.id !== id))}
+            />
+          )}
           contentContainerStyle={{ paddingTop: spacing.md, paddingBottom: spacing.xxxl }}
           refreshControl={
             <RefreshControl

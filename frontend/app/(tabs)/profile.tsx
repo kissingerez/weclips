@@ -83,7 +83,7 @@ export default function Profile() {
                 @{user.username}
               </Text>
             ) : null}
-            <Text style={styles.email}>{user?.email}</Text>
+            <Text style={styles.email}>{user?.email_public ? user?.email : ""}</Text>
             {user?.bio ? (
               <Text style={styles.bio} testID="profile-bio" numberOfLines={4}>
                 {user.bio}

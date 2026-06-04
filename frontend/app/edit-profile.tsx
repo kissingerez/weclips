@@ -46,6 +46,7 @@ export default function EditProfile() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [followersHidden, setFollowersHidden] = useState(false);
+  const [emailPublic, setEmailPublic] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -118,6 +119,7 @@ export default function EditProfile() {
       setBio(user.bio || "");
       setEmail(user.email || "");
       setFollowersHidden(!!user.followers_hidden);
+      setEmailPublic(!!user.email_public);
     }
   }, [user]);
 
@@ -161,6 +163,7 @@ export default function EditProfile() {
     if (u && u !== user?.username) body.username = u;
     if (bio !== (user?.bio || "")) body.bio = bio;
     if (followersHidden !== !!user?.followers_hidden) body.followers_hidden = followersHidden;
+    if (emailPublic !== !!user?.email_public) body.email_public = emailPublic;
     if (trimmedEmail !== user?.email) body.email = trimmedEmail;
     if (wantsPwChange) {
       body.current_password = currentPassword;
@@ -306,6 +309,22 @@ export default function EditProfile() {
             keyboardType="email-address"
             placeholderTextColor={colors.onSurfaceTertiary}
           />
+
+          <View style={styles.toggleRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.toggleTitle}>Show my email on my profile</Text>
+              <Text style={styles.hint}>
+                Off by default. When on, your email is visible to anyone visiting your profile.
+              </Text>
+            </View>
+            <Switch
+              testID="edit-show-email"
+              value={emailPublic}
+              onValueChange={setEmailPublic}
+              trackColor={{ true: colors.brand, false: colors.surfaceTertiary }}
+              thumbColor={colors.onBrand}
+            />
+          </View>
 
           <View style={styles.toggleRow}>
             <View style={{ flex: 1 }}>
