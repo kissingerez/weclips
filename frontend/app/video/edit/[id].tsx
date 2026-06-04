@@ -51,6 +51,11 @@ export default function EditVideo() {
   const [ok, setOk] = useState<string | null>(null);
   const [thumbVer, setThumbVer] = useState(Date.now());
   const [newThumbUri, setNewThumbUri] = useState<string | null>(null);
+  const [autoOptions, setAutoOptions] = useState<
+    { label: string; base64: string; at_sec: number }[]
+  >([]);
+  const [autoBusy, setAutoBusy] = useState(false);
+  const [selectedAuto, setSelectedAuto] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -108,6 +113,40 @@ export default function EditVideo() {
       await api.put(`/videos/${id}/thumbnail`, { thumbnail_base64: b64 });
       setThumbVer(Date.now());
       setOk("Thumbnail updated.");
+    } catch (e: any) {
+      setErr(e?.message || "Failed to update thumbnail");
+    }
+  };
+
+  const generateAutoThumbnails = async () => {
+    if (!id || autoBusy) return;
+    setErr(null);
+    setOk(null);
+    setAutoBusy(true);
+    try {
+      const data = await api.get<{
+        options: { label: string; base64: string; at_sec: number }[];
+      }>(`/videos/${id}/thumbnail-options`);
+      setAutoOptions(data.options || []);
+      setSelectedAuto(null);
+      if ((data.options || []).length === 0) {
+        setErr("Could not generate any frames from this video.");
+      }
+    } catch (e: any) {
+      setErr(e?.message || "Could not generate thumbnails");
+    } finally {
+      setAutoBusy(false);
+    }
+  };
+
+  const applyAutoThumb = async (opt: { label: string; base64: string }) => {
+    setErr(null);
+    setSelectedAuto(opt.label);
+    try {
+      await api.put(`/videos/${id}/thumbnail`, { thumbnail_base64: opt.base64 });
+      setNewThumbUri(`data:image/jpeg;base64,${opt.base64}`);
+      setThumbVer(Date.now());
+      setOk(`Thumbnail set from ${opt.label}.`);
     } catch (e: any) {
       setErr(e?.message || "Failed to update thumbnail");
     }
@@ -209,6 +248,86 @@ export default function EditVideo() {
             <Text style={styles.thumbBtnText}>Change thumbnail</Text>
           </Pressable>
 
+          <View style={styles.autoBox}>
+            <View style={styles.autoHeader}>
+              <Text style={styles.autoTitle}>Auto-generate from video</Text>
+              <Pressable
+                testID="edit-video-auto-regen"
+                onPress={generateAutoThumbnails}
+                disabled={autoBusy}
+                style={[styles.autoRegen, autoBusy && { opacity: 0.6 }]}
+                hitSlop={8}
+              >
+                {autoBusy ? (
+                  <ActivityIndicator size="small" color={colors.onSurface} />
+                ) : (
+                  <>
+                    <Ionicons
+                      name={autoOptions.length ? "refresh" : "sparkles"}
+                      size={14}
+                      color={colors.onSurface}
+                    />
+                    <Text style={styles.autoRegenText}>
+                      {autoOptions.length ? "Refresh" : "Generate"}
+                    </Text>
+                  </>
+                )}
+              </Pressable>
+            </View>
+            <Text style={styles.autoHint}>
+              Pulls 3 frames from your video (start / middle / end). Tap one to use it.
+            </Text>
+
+            {autoBusy ? (
+              <View style={styles.autoLoading}>
+                <ActivityIndicator color={colors.brand} />
+                <Text style={styles.autoLoadingText}>
+                  Extracting frames from your video…
+                </Text>
+              </View>
+            ) : autoOptions.length > 0 ? (
+              <View style={styles.autoOptionsRow}>
+                {autoOptions.map((opt) => {
+                  const selected = opt.label === selectedAuto;
+                  return (
+                    <Pressable
+                      key={opt.label}
+                      testID={`edit-video-auto-${opt.label.toLowerCase()}`}
+                      onPress={() => applyAutoThumb(opt)}
+                      style={[
+                        styles.autoOption,
+                        selected && styles.autoOptionSelected,
+                      ]}
+                    >
+                      <Image
+                        source={{ uri: `data:image/jpeg;base64,${opt.base64}` }}
+                        style={styles.autoOptionImg}
+                        resizeMode="cover"
+                      />
+                      <View style={styles.autoOptionFooter}>
+                        <Text
+                          style={[
+                            styles.autoOptionLabel,
+                            selected && { color: colors.onBrand },
+                          ]}
+                        >
+                          {opt.label}
+                        </Text>
+                        {selected ? (
+                          <Ionicons
+                            name="checkmark-circle"
+                            size={14}
+                            color={colors.onBrand}
+                          />
+                        ) : null}
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
+          </View>
+
           <Text style={styles.label}>Title</Text>
           <TextInput
             testID="edit-video-title"
@@ -288,6 +407,63 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill, marginTop: spacing.md,
   },
   thumbBtnText: { color: colors.onBrand, fontWeight: "700", fontSize: text.sm },
+  autoBox: {
+    marginTop: spacing.lg,
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.md,
+  },
+  autoHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  autoTitle: { color: colors.onSurface, fontSize: text.base, fontWeight: "800" },
+  autoHint: { color: colors.onSurfaceSecondary, fontSize: text.sm, marginTop: 2 },
+  autoRegen: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: colors.surfaceTertiary,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+  },
+  autoRegenText: { color: colors.onSurface, fontSize: 11, fontWeight: "700" },
+  autoLoading: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: spacing.lg,
+    gap: spacing.xs,
+  },
+  autoLoadingText: { color: colors.onSurfaceSecondary, fontSize: text.sm },
+  autoOptionsRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.md },
+  autoOption: {
+    flex: 1,
+    borderRadius: radius.sm,
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceTertiary,
+  },
+  autoOptionSelected: { borderColor: colors.brand },
+  autoOptionImg: { width: "100%", aspectRatio: 16 / 9 },
+  autoOptionFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    paddingVertical: 4,
+    backgroundColor: colors.brand,
+  },
+  autoOptionLabel: {
+    color: colors.onBrand,
+    fontSize: 11,
+    fontWeight: "800",
+    textAlign: "center",
+  },
   saveBtn: { backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: "center", marginTop: spacing.xl },
   saveBtnText: { color: colors.onBrand, fontWeight: "800", fontSize: text.lg },
   deleteBtn: {

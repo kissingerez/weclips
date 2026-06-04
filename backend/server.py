@@ -5,6 +5,10 @@ import base64
 import hashlib
 import secrets
 import logging
+import asyncio
+import shutil
+import subprocess
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional
@@ -1212,6 +1216,121 @@ async def get_thumbnail(video_id: str):
         media_type="image/jpeg",
         headers={"Cache-Control": "public, max-age=3600"},
     )
+
+
+async def _video_source_for_processing(v: dict) -> Optional[str]:
+    """Return a URL/path the server can hand to ffmpeg.
+    Prefers a short-lived R2 presigned GET URL; falls back to legacy disk path."""
+    if v.get("storage") == "r2" and v.get("r2_key") and s3 is not None:
+        try:
+            return s3.generate_presigned_url(
+                ClientMethod="get_object",
+                Params={"Bucket": R2_BUCKET, "Key": v["r2_key"]},
+                ExpiresIn=300,
+            )
+        except Exception:
+            return None
+    fp = v.get("file_path")
+    if fp and Path(fp).exists():
+        return str(fp)
+    return None
+
+
+async def _ffprobe_duration(source: str) -> Optional[float]:
+    """Run ffprobe to get duration in seconds. Returns None on failure."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffprobe",
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            source,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=20)
+        return float(out.decode().strip()) if out else None
+    except Exception:
+        return None
+
+
+async def _ffmpeg_extract_frame(source: str, at_sec: float, out_path: str) -> bool:
+    """Extract a single JPEG frame at the given time. Returns True on success."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-y",
+            "-ss", f"{max(0.0, at_sec):.2f}",
+            "-i", source,
+            "-frames:v", "1",
+            "-vf", "scale='min(720,iw)':-2",
+            "-q:v", "5",
+            "-f", "image2",
+            out_path,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await asyncio.wait_for(proc.wait(), timeout=30)
+        return Path(out_path).exists() and Path(out_path).stat().st_size > 200
+    except Exception:
+        return False
+
+
+@api.get("/videos/{video_id}/thumbnail-options")
+async def get_thumbnail_options(
+    video_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """Server-side extraction of 3 thumbnail candidates (Start/Middle/End)
+    from an already-uploaded video. Creator only."""
+    if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
+        raise HTTPException(status_code=503, detail="ffmpeg not available on server")
+    v = await videos_col.find_one({"_id": video_id})
+    if not v:
+        raise HTTPException(status_code=404, detail="Video not found")
+    if v.get("creator_id") != user["_id"]:
+        raise HTTPException(status_code=403, detail="Only the creator can generate thumbnails")
+
+    src = await _video_source_for_processing(v)
+    if not src:
+        raise HTTPException(status_code=404, detail="Video file not accessible")
+
+    duration = await _ffprobe_duration(src)
+    # Fall back if we can't probe (e.g. signed URL hides metadata)
+    if not duration or duration <= 0:
+        duration = 6.0
+
+    targets = [
+        ("Start", min(1.0, duration * 0.10)),
+        ("Middle", duration * 0.50),
+        ("End", max(1.0, duration * 0.85)),
+    ]
+
+    results: List[dict] = []
+    with tempfile.TemporaryDirectory(prefix="weclips_thumbs_") as tmpdir:
+        for idx, (label, at_sec) in enumerate(targets):
+            out_path = os.path.join(tmpdir, f"frame_{idx}.jpg")
+            ok = await _ffmpeg_extract_frame(src, at_sec, out_path)
+            if not ok:
+                continue
+            try:
+                with open(out_path, "rb") as f:
+                    raw = f.read()
+                if len(raw) > 800_000:
+                    # safety cap (~800KB encoded JPEG)
+                    continue
+                results.append(
+                    {
+                        "label": label,
+                        "at_sec": round(at_sec, 2),
+                        "base64": base64.b64encode(raw).decode("ascii"),
+                    }
+                )
+            except Exception:
+                continue
+
+    if not results:
+        raise HTTPException(status_code=500, detail="Could not extract any frames")
+    return {"options": results, "duration_sec": round(duration, 2)}
 
 
 @api.put("/videos/{video_id}/thumbnail")
