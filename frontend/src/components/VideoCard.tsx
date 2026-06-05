@@ -106,17 +106,6 @@ export const VideoCard: React.FC<{ video: VideoCardData; onDeleted?: (id: string
             <Text style={styles.founderChipText}>Delete</Text>
           </Pressable>
         )}
-        <Pressable
-          testID={`videocard-share-${video.id}`}
-          onPress={(e: any) => {
-            e?.stopPropagation && e.stopPropagation();
-            shareVideo(video.id, video.title);
-          }}
-          style={styles.shareChip}
-          hitSlop={8}
-        >
-          <Ionicons name="share-social" size={14} color={colors.onBrand} />
-        </Pressable>
       </View>
       <View style={styles.meta}>
         <Text style={styles.title} numberOfLines={2}>
