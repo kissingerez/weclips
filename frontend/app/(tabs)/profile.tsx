@@ -204,6 +204,7 @@ export default function Profile() {
 
         <View style={styles.legalMenu} testID="profile-legal-menu">
           {[
+            { key: "blocked", label: "Blocked accounts", route: "/blocked" },
             { key: "guidelines", label: "Community Guidelines" },
             { key: "privacy", label: "Privacy Policy" },
             { key: "terms", label: "Terms of Service" },
@@ -213,7 +214,9 @@ export default function Profile() {
               key={item.key}
               testID={`profile-legal-${item.key}`}
               onPress={() =>
-                router.push({ pathname: "/legal", params: { section: item.key } })
+                (item as any).route
+                  ? router.push((item as any).route)
+                  : router.push({ pathname: "/legal", params: { section: item.key } })
               }
               style={styles.legalRow}
             >

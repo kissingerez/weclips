@@ -283,6 +283,55 @@ export default function VideoScreen() {
                   <Ionicons name="share-social-outline" size={20} color={colors.onSurface} />
                   <Text style={styles.actionLabel}>Share</Text>
                 </Pressable>
+                {user && video.creator_id !== user.id ? (
+                  <>
+                    <Pressable
+                      testID="video-report-button"
+                      onPress={async () => {
+                        const reason = typeof window !== "undefined" && (window as any).prompt
+                          ? (window as any).prompt(
+                              "Report this video. Briefly describe why (e.g. spam, harassment, against guidelines)."
+                            )
+                          : "Reported via mobile";
+                        if (!reason) return;
+                        try {
+                          await api.post(`/videos/${video.id}/report`, { reason: String(reason).slice(0, 500) });
+                          if (typeof window !== "undefined" && (window as any).alert)
+                            (window as any).alert("Thanks. Our team will review this report.");
+                        } catch (e: any) {
+                          if (typeof window !== "undefined" && (window as any).alert)
+                            (window as any).alert(e?.message || "Could not report");
+                        }
+                      }}
+                      style={styles.actionBtn}
+                    >
+                      <Ionicons name="flag-outline" size={20} color={colors.onSurface} />
+                      <Text style={styles.actionLabel}>Report</Text>
+                    </Pressable>
+                    <Pressable
+                      testID="video-block-button"
+                      onPress={async () => {
+                        const ok = typeof window !== "undefined" && (window as any).confirm
+                          ? (window as any).confirm(
+                              `Block ${video.creator_name}?\n\nYou won't see their videos in your feed anymore. You can unblock them anytime from Profile → Blocked accounts.`
+                            )
+                          : true;
+                        if (!ok) return;
+                        try {
+                          await api.post(`/users/${video.creator_id}/block`);
+                          router.back();
+                        } catch (e: any) {
+                          if (typeof window !== "undefined" && (window as any).alert)
+                            (window as any).alert(e?.message || "Could not block");
+                        }
+                      }}
+                      style={styles.actionBtn}
+                    >
+                      <Ionicons name="ban-outline" size={20} color={colors.error} />
+                      <Text style={[styles.actionLabel, { color: colors.error }]}>Block</Text>
+                    </Pressable>
+                  </>
+                ) : null}
                 {user?.is_founder && video.creator_id !== user.id ? (
                   <Pressable
                     testID="video-founder-delete"

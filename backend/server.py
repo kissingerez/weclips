@@ -272,6 +272,24 @@ async def get_current_user(
     return user
 
 
+async def get_current_user_optional(
+    creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer),
+) -> Optional[dict]:
+    """Returns the authenticated user when a valid bearer token is provided,
+    otherwise None. Never raises — useful for endpoints that work both
+    signed-in and signed-out (e.g. public feed)."""
+    if creds is None:
+        return None
+    try:
+        payload = jwt.decode(creds.credentials, JWT_SECRET, algorithms=[JWT_ALG])
+        user_id = payload.get("sub")
+        if not user_id:
+            return None
+    except JWTError:
+        return None
+    return await users_col.find_one({"_id": user_id}, {"password_hash": 0})
+
+
 async def get_current_user_flexible(
     creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer),
     token: Optional[str] = None,
@@ -1183,8 +1201,21 @@ async def upload_video(
 
 
 @api.get("/videos", response_model=List[VideoPublic])
-async def list_videos(q: Optional[str] = None, limit: int = 50):
+async def list_videos(
+    q: Optional[str] = None,
+    limit: int = 50,
+    user: Optional[dict] = Depends(get_current_user_optional),
+):
     query: dict = {"$or": [{"upload_complete": True}, {"upload_complete": {"$exists": False}}]}
+    # Filter out users this viewer has blocked, AND users who have blocked this viewer
+    if user:
+        excluded: set = set()
+        async for b in blocks_col.find({"blocker_id": user["_id"]}, {"blocked_id": 1}):
+            excluded.add(b["blocked_id"])
+        async for b in blocks_col.find({"blocked_id": user["_id"]}, {"blocker_id": 1}):
+            excluded.add(b["blocker_id"])
+        if excluded:
+            query = {"$and": [query, {"creator_id": {"$nin": list(excluded)}}]}
     if q:
         text_filter = {
             "$or": [
@@ -1193,7 +1224,7 @@ async def list_videos(q: Optional[str] = None, limit: int = 50):
                 {"creator_name": {"$regex": q, "$options": "i"}},
             ]
         }
-        query = {"$and": [query, text_filter]}
+        query = {"$and": [query, text_filter]} if "$and" not in query else {**query, "$and": query["$and"] + [text_filter]}
     cursor = videos_col.find(
         query, {"content_base64": 0, "thumbnail_base64": 0, "liked_by": 0}
     ).sort("created_at", -1).limit(min(limit, 100))
@@ -1802,6 +1833,53 @@ async def report_content(body: ReportReq, user: dict = Depends(get_current_user)
     return {"status": "ok"}
 
 
+class SimpleReportReq(BaseModel):
+    reason: str = Field(min_length=2, max_length=500)
+
+
+@api.post("/videos/{video_id}/report")
+async def report_video(
+    video_id: str, body: SimpleReportReq, user: dict = Depends(get_current_user)
+):
+    v = await videos_col.find_one({"_id": video_id}, {"_id": 1})
+    if not v:
+        raise HTTPException(status_code=404, detail="Video not found")
+    await reports_col.insert_one(
+        {
+            "_id": str(uuid.uuid4()),
+            "reporter_id": user["_id"],
+            "target_type": "video",
+            "target_id": video_id,
+            "reason": body.reason.strip(),
+            "status": "open",
+            "created_at": now_utc(),
+        }
+    )
+    return {"status": "ok"}
+
+
+@api.post("/users/{target_user_id}/report")
+async def report_user(
+    target_user_id: str,
+    body: SimpleReportReq,
+    user: dict = Depends(get_current_user),
+):
+    if target_user_id == user["_id"]:
+        raise HTTPException(status_code=400, detail="Cannot report yourself")
+    await reports_col.insert_one(
+        {
+            "_id": str(uuid.uuid4()),
+            "reporter_id": user["_id"],
+            "target_type": "user",
+            "target_id": target_user_id,
+            "reason": body.reason.strip(),
+            "status": "open",
+            "created_at": now_utc(),
+        }
+    )
+    return {"status": "ok"}
+
+
 # --- Block / unblock user (Apple App Store guideline 1.2 — required) ---
 @api.post("/users/{target_user_id}/block")
 async def block_user(target_user_id: str, user: dict = Depends(get_current_user)):
@@ -1828,6 +1906,35 @@ async def list_blocks(user: dict = Depends(get_current_user)):
     async for b in cursor:
         ids.append(b["blocked_id"])
     return {"blocked_user_ids": ids}
+
+
+@api.get("/users/me/blocks/list", response_model=List[UserSearchResult])
+async def list_blocks_detailed(user: dict = Depends(get_current_user)):
+    cursor = blocks_col.find({"blocker_id": user["_id"]}).sort("created_at", -1)
+    ids: List[str] = []
+    async for b in cursor:
+        ids.append(b["blocked_id"])
+    if not ids:
+        return []
+    out: List[UserSearchResult] = []
+    async for u in users_col.find(
+        {"_id": {"$in": ids}},
+        {"_id": 1, "display_name": 1, "username": 1, "avatar_base64": 1, "bio": 1, "followers_hidden": 1},
+    ):
+        hidden = bool(u.get("followers_hidden", False))
+        followers = 0 if hidden else await follows_col.count_documents({"followee_id": u["_id"]})
+        out.append(
+            UserSearchResult(
+                id=u["_id"],
+                display_name=u.get("display_name") or "User",
+                username=u.get("username"),
+                bio=u.get("bio"),
+                has_avatar=bool(u.get("avatar_base64")),
+                followers_hidden=hidden,
+                followers=followers,
+            )
+        )
+    return out
 
 
 # --- Config endpoint (legal pages read this) ---
