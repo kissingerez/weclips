@@ -16,6 +16,7 @@ import { useVideoPlayer, VideoView } from "expo-video";
 import { Ionicons } from "@expo/vector-icons";
 import { api, API_BASE, ApiError } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
+import { shareVideo } from "@/src/components/VideoCard";
 import { tokenStorage } from "@/src/lib/tokenStorage";
 import { colors, radius, spacing, text } from "@/src/theme";
 
@@ -273,6 +274,14 @@ export default function VideoScreen() {
                 <Pressable testID="video-like-button" onPress={toggleLike} style={styles.actionBtn}>
                   <Ionicons name={liked ? "heart" : "heart-outline"} size={20} color={liked ? colors.brand : colors.onSurface} />
                   <Text style={styles.actionLabel}>{likes}</Text>
+                </Pressable>
+                <Pressable
+                  testID="video-share-button"
+                  onPress={() => shareVideo(video.id, video.title)}
+                  style={styles.actionBtn}
+                >
+                  <Ionicons name="share-social-outline" size={20} color={colors.onSurface} />
+                  <Text style={styles.actionLabel}>Share</Text>
                 </Pressable>
                 {user?.is_founder && video.creator_id !== user.id ? (
                   <Pressable

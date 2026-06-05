@@ -1,11 +1,22 @@
 import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, Share, StyleSheet, Text, View } from "react-native";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { API_BASE } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
 import { colors, radius, spacing, text } from "@/src/theme";
+
+const SHARE_BASE = (process.env.EXPO_PUBLIC_SHARE_BASE_URL ||
+  "https://ad-free-video-12.emergent.host").replace(/\/+$/, "");
+
+export async function shareVideo(videoId: string, title?: string) {
+  const url = `${SHARE_BASE}/v/${videoId}`;
+  const message = title ? `${title} — Watch on WeClips\n${url}` : url;
+  try {
+    await Share.share({ message, url, title: title || "WeClips" });
+  } catch {}
+}
 
 export type VideoCardData = {
   id: string;
@@ -95,6 +106,17 @@ export const VideoCard: React.FC<{ video: VideoCardData; onDeleted?: (id: string
             <Text style={styles.founderChipText}>Delete</Text>
           </Pressable>
         )}
+        <Pressable
+          testID={`videocard-share-${video.id}`}
+          onPress={(e: any) => {
+            e?.stopPropagation && e.stopPropagation();
+            shareVideo(video.id, video.title);
+          }}
+          style={styles.shareChip}
+          hitSlop={8}
+        >
+          <Ionicons name="share-social" size={14} color={colors.onBrand} />
+        </Pressable>
       </View>
       <View style={styles.meta}>
         <Text style={styles.title} numberOfLines={2}>
@@ -146,6 +168,22 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   founderChipText: { color: "#1A1A1A", fontSize: 11, fontWeight: "800" },
+  shareChip: {
+    position: "absolute",
+    bottom: spacing.sm,
+    right: spacing.sm,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
   meta: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },
   title: { color: colors.onSurface, fontSize: text.lg, fontWeight: "700", marginBottom: spacing.xs },
   sub: { color: colors.onSurfaceSecondary, fontSize: text.sm },

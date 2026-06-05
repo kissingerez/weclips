@@ -2183,6 +2183,102 @@ async def legal_support_short():
     return HTMLResponse(_legal_page("Support", _SUPPORT_BODY))
 
 
+# Public OG-preview page for sharing a specific video. Renders an HTML page
+# with Open Graph + Twitter Card meta tags so iMessage, WhatsApp, X, etc.
+# show a thumbnail + title preview. Tapping the link in a browser falls
+# through to a "View in app" / "Get the app" call to action.
+@app.get("/v/{video_id}", response_class=HTMLResponse, include_in_schema=False)
+async def share_video_page(video_id: str):
+    v = await videos_col.find_one(
+        {"_id": video_id},
+        {
+            "title": 1,
+            "description": 1,
+            "creator_name": 1,
+            "creator_username": 1,
+            "has_thumbnail": 1,
+            "thumbnail_updated_at": 1,
+        },
+    )
+    title = (v or {}).get("title", "WeClips") if v else "WeClips video"
+    creator = (v or {}).get("creator_name", "a creator")
+    handle = (v or {}).get("creator_username")
+    descr = (v or {}).get("description") or f"Watch {title} on WeClips — ad-free, Christian-friendly videos."
+    thumb_v = (v or {}).get("thumbnail_updated_at") or ""
+    has_thumb = bool((v or {}).get("has_thumbnail"))
+    base = os.environ.get("APP_PUBLIC_URL", "https://weclips.app").rstrip("/")
+    page_url = f"{base}/v/{video_id}"
+    thumb_url = f"{base}/api/videos/{video_id}/thumbnail?v={thumb_v}" if has_thumb else f"{base}/og-default.png"
+    safe_title = (title or "WeClips").replace("<", "&lt;").replace(">", "&gt;")
+    safe_descr = (descr or "").replace("<", "&lt;").replace(">", "&gt;")[:280]
+    creator_label = f"@{handle}" if handle else creator
+    html = f"""<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+<meta charset=\"UTF-8\">
+<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+<title>{safe_title} · WeClips</title>
+<meta name=\"description\" content=\"{safe_descr}\">
+<meta property=\"og:type\" content=\"video.other\">
+<meta property=\"og:site_name\" content=\"WeClips\">
+<meta property=\"og:title\" content=\"{safe_title}\">
+<meta property=\"og:description\" content=\"{safe_descr}\">
+<meta property=\"og:image\" content=\"{thumb_url}\">
+<meta property=\"og:image:width\" content=\"1280\">
+<meta property=\"og:image:height\" content=\"720\">
+<meta property=\"og:url\" content=\"{page_url}\">
+<meta name=\"twitter:card\" content=\"summary_large_image\">
+<meta name=\"twitter:title\" content=\"{safe_title}\">
+<meta name=\"twitter:description\" content=\"{safe_descr}\">
+<meta name=\"twitter:image\" content=\"{thumb_url}\">
+<style>
+  :root {{ color-scheme: light; }}
+  * {{ box-sizing: border-box; }}
+  body {{ margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Comic Sans MS", sans-serif; background: #F4FAFF; color: #1A1A1A; }}
+  header {{ background: #9CD3F5; color: #0B2A45; padding: 24px 16px; text-align: center; }}
+  header h1 {{ margin: 0; font-size: 22px; }}
+  header .tag {{ font-size: 11px; letter-spacing: 2px; opacity: 0.85; margin-top: 4px; }}
+  main {{ max-width: 600px; margin: 0 auto; padding: 24px 16px; }}
+  .card {{ background: white; border-radius: 18px; overflow: hidden; box-shadow: 0 8px 24px rgba(11,42,69,0.08); }}
+  .thumb {{ width: 100%; aspect-ratio: 16/9; background: #DDE7EF; display: block; }}
+  .body {{ padding: 16px 18px 24px; }}
+  .title {{ font-size: 18px; font-weight: 800; margin: 0 0 6px; color: #0B2A45; }}
+  .creator {{ font-size: 14px; color: #5A6470; margin: 0; }}
+  .descr {{ font-size: 14px; line-height: 1.45; margin: 12px 0 20px; color: #1A1A1A; white-space: pre-wrap; }}
+  .ctaRow {{ display: flex; gap: 8px; flex-direction: column; }}
+  .cta {{ display: block; text-align: center; padding: 14px 16px; border-radius: 12px; font-weight: 800; text-decoration: none; }}
+  .primary {{ background: #2196C9; color: white; }}
+  .ghost {{ background: #F4FAFF; color: #0B2A45; border: 1px solid #C9DDEA; }}
+  footer {{ text-align: center; font-size: 11px; color: #5A6470; padding: 16px; }}
+</style>
+</head>
+<body>
+<header>
+  <h1>WeClips</h1>
+  <div class=\"tag\">AD-FREE · CHRISTIAN · CALM</div>
+</header>
+<main>
+  <div class=\"card\">
+    <img class=\"thumb\" src=\"{thumb_url}\" alt=\"{safe_title}\"
+         onerror=\"this.style.display='none'\">
+    <div class=\"body\">
+      <p class=\"title\">{safe_title}</p>
+      <p class=\"creator\">By {creator_label}</p>
+      <p class=\"descr\">{safe_descr}</p>
+      <div class=\"ctaRow\">
+        <a class=\"cta primary\" href=\"weclips://video/{video_id}\">Open in WeClips</a>
+        <a class=\"cta ghost\" href=\"https://apps.apple.com/app/weclips/id000000000\">Get the app</a>
+      </div>
+    </div>
+  </div>
+</main>
+<footer>© 2026 WeClips · <a href=\"/privacy\">Privacy</a> · <a href=\"/terms\">Terms</a></footer>
+</body>
+</html>
+"""
+    return HTMLResponse(html)
+
+
 # --- Mount ---
 app.include_router(api)
 app.add_middleware(
