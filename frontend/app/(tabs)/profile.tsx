@@ -75,9 +75,17 @@ export default function Profile() {
             version={user?.id}
           />
           <View style={{ flex: 1 }}>
-            <Text style={styles.name} testID="profile-name">
-              {user?.display_name || "Unknown"}
-            </Text>
+            <View style={styles.nameRow}>
+              <Text style={styles.name} testID="profile-name">
+                {user?.display_name || "Unknown"}
+              </Text>
+              {user?.is_founder ? (
+                <View style={styles.founderInlineBadge} testID="profile-founder-badge">
+                  <Ionicons name="shield-checkmark" size={12} color="#1A1A1A" />
+                  <Text style={styles.founderInlineText}>Founder</Text>
+                </View>
+              ) : null}
+            </View>
             {user?.username ? (
               <Text style={styles.username} testID="profile-username">
                 @{user.username}
@@ -360,6 +368,17 @@ const styles = StyleSheet.create({
   subOn: { backgroundColor: colors.brand },
   subOff: { backgroundColor: colors.surfaceTertiary },
   founderBadge: { backgroundColor: "#FFB300", marginLeft: spacing.xs },
+  nameRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs, flexWrap: "wrap" },
+  founderInlineBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#FFB300",
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
+  },
+  founderInlineText: { color: "#1A1A1A", fontSize: 11, fontWeight: "800" },
   statusText: { fontSize: 11, fontWeight: "700" },
   actions: {
     flexDirection: "row",

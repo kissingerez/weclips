@@ -5,6 +5,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -270,7 +271,12 @@ export default function VideoScreen() {
                 </Pressable>
               ) : null}
 
-              <View style={styles.actionRow}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.actionRow}
+                contentContainerStyle={styles.actionRowContent}
+              >
                 <Pressable testID="video-like-button" onPress={toggleLike} style={styles.actionBtn}>
                   <Ionicons name={liked ? "heart" : "heart-outline"} size={20} color={liked ? colors.brand : colors.onSurface} />
                   <Text style={styles.actionLabel}>{likes}</Text>
@@ -360,7 +366,7 @@ export default function VideoScreen() {
                     <Text style={styles.founderDeleteText}>Founder · Delete</Text>
                   </Pressable>
                 ) : null}
-              </View>
+              </ScrollView>
 
               {video.description ? (
                 <Text style={styles.desc}>{video.description}</Text>
@@ -462,7 +468,8 @@ const styles = StyleSheet.create({
   meta: { padding: spacing.lg },
   title: { color: colors.onSurface, fontSize: text.xl, fontWeight: "800" },
   sub: { color: colors.onSurfaceSecondary, fontSize: text.sm, marginTop: 4 },
-  actionRow: { flexDirection: "row", marginTop: spacing.md, gap: spacing.lg },
+  actionRow: { marginTop: spacing.md, flexGrow: 0 },
+  actionRowContent: { flexDirection: "row", gap: spacing.sm, paddingRight: spacing.lg },
   actionBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors.surfaceSecondary, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border },
   founderDeleteBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#FFB300", paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.pill },
   founderDeleteText: { color: "#1A1A1A", fontWeight: "800", fontSize: text.sm },
