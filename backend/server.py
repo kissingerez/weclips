@@ -18,7 +18,7 @@ import boto3
 from botocore.config import Config as BotoConfig
 from dotenv import load_dotenv
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header, Request, UploadFile, File, Form
-from fastapi.responses import Response, FileResponse, StreamingResponse
+from fastapi.responses import Response, FileResponse, StreamingResponse, HTMLResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -1977,6 +1977,210 @@ async def mark_read(user: dict = Depends(get_current_user)):
         {"recipient_id": user["_id"], "read": False}, {"$set": {"read": True}}
     )
     return {"modified": result.modified_count}
+
+
+# ---------------------------------------------------------------------------
+# Public legal pages (HTML) — used for App Store Connect Privacy Policy URL,
+# Support URL, and Terms of Service URL. Render simple, fully self-contained
+# HTML so they work from any browser without depending on the Expo build.
+# ---------------------------------------------------------------------------
+def _legal_page(title: str, body_html: str) -> str:
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{title} · WeClips</title>
+<style>
+  :root {{ color-scheme: light; }}
+  * {{ box-sizing: border-box; }}
+  body {{ margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Comic Sans MS", "Comic Sans", sans-serif; background: #F4FAFF; color: #1A1A1A; line-height: 1.55; }}
+  header {{ background: #9CD3F5; color: #0B2A45; padding: 32px 24px; text-align: center; }}
+  header h1 {{ margin: 0; font-size: 32px; letter-spacing: -0.5px; }}
+  header .tag {{ font-size: 12px; letter-spacing: 2px; text-transform: uppercase; opacity: 0.85; margin-top: 8px; }}
+  main {{ max-width: 760px; margin: 0 auto; padding: 32px 24px 64px; }}
+  main h2 {{ font-size: 20px; margin-top: 32px; margin-bottom: 8px; color: #0B2A45; }}
+  main h3 {{ font-size: 16px; margin-top: 24px; margin-bottom: 4px; color: #0B2A45; }}
+  main p, main li {{ font-size: 15px; }}
+  main ul {{ padding-left: 22px; }}
+  main a {{ color: #1B7FC7; }}
+  .updated {{ color: #5A6470; font-size: 13px; margin-top: -4px; margin-bottom: 16px; }}
+  footer {{ text-align: center; font-size: 12px; color: #5A6470; padding: 24px 16px 48px; }}
+  footer a {{ color: #1B7FC7; margin: 0 8px; }}
+</style>
+</head>
+<body>
+<header>
+  <h1>WeClips</h1>
+  <div class="tag">AD-FREE · CHRISTIAN · CALM</div>
+</header>
+<main>
+  <h1 style="font-size:24px;margin-bottom:4px;">{title}</h1>
+  <p class="updated">Last updated: June 4, 2026</p>
+  {body_html}
+</main>
+<footer>
+  <a href="/api/legal/privacy">Privacy Policy</a> ·
+  <a href="/api/legal/terms">Terms of Service</a> ·
+  <a href="/api/legal/support">Support</a>
+  <div style="margin-top:8px;">© 2026 WeClips</div>
+</footer>
+</body>
+</html>
+"""
+
+
+_PRIVACY_BODY = """
+<p>WeClips ("we", "us", or "our") respects your privacy. This policy explains what we collect, how we use it, and the choices you have. WeClips is a Christian-friendly, ad-free, member-supported short video sharing service.</p>
+
+<h2>1. Information we collect</h2>
+<h3>You give us</h3>
+<ul>
+  <li><b>Account info</b> — email address, password (hashed with bcrypt), display name, username, optional bio, optional profile picture.</li>
+  <li><b>Content you upload</b> — videos, comments, likes, follows, reports.</li>
+  <li><b>Subscription receipts</b> — purchase records from Apple/Google verified through RevenueCat. We never receive your credit card or full payment details.</li>
+</ul>
+<h3>Collected automatically</h3>
+<ul>
+  <li>Approximate IP address (for security and abuse prevention only — not stored long-term).</li>
+  <li>Server access logs (URL, status code, timestamp) for diagnostics.</li>
+  <li>In-app interaction events such as view counts and like counts on videos.</li>
+</ul>
+
+<h2>2. How we use it</h2>
+<ul>
+  <li>Provide the service: store and stream the videos you upload, deliver comments and follows.</li>
+  <li>Authenticate you and protect your account.</li>
+  <li>Send transactional email such as password reset links via SendGrid.</li>
+  <li>Process subscriptions through Apple, Google, and RevenueCat.</li>
+  <li>Enforce our Community Guidelines (no demonic, sexual, hateful, or AI-generated content).</li>
+</ul>
+
+<h2>3. Third-party processors we share data with</h2>
+<ul>
+  <li><b>Cloudflare R2</b> — stores your uploaded videos.</li>
+  <li><b>MongoDB</b> — stores account, comment, follow, and metadata records.</li>
+  <li><b>SendGrid</b> — sends password reset emails.</li>
+  <li><b>RevenueCat / Apple / Google</b> — process subscription purchases.</li>
+</ul>
+<p>We do not sell or rent your data, and we do not run third-party advertising trackers.</p>
+
+<h2>4. Children</h2>
+<p>WeClips is not directed at children under 13. We do not knowingly collect data from children under 13. If we learn that a child under 13 has created an account, we will delete it.</p>
+
+<h2>5. Your choices</h2>
+<ul>
+  <li><b>Edit or delete your data</b> — change display name, username, bio, email, password, or profile picture from the in-app <i>Edit account</i> screen.</li>
+  <li><b>Hide your followers</b> — toggle in <i>Edit account</i>.</li>
+  <li><b>Hide your email</b> — off by default; opt in from <i>Edit account</i>.</li>
+  <li><b>Delete your account</b> — tap <i>Delete account</i> in <i>Profile</i>. You have a 30-day grace period to sign back in and restore. After 30 days everything is permanently erased.</li>
+  <li><b>Block or report users / videos</b> — long-press a user or video to access these actions.</li>
+</ul>
+
+<h2>6. Data retention</h2>
+<p>We keep your account data while your account is active. After you request deletion, your data is fully purged 30 days later. Backups are rotated and overwritten within 30 days.</p>
+
+<h2>7. Security</h2>
+<p>Passwords are stored as bcrypt hashes. All traffic uses HTTPS. Videos are uploaded directly to Cloudflare R2 over presigned URLs. Subscription receipts are validated server-side.</p>
+
+<h2>8. Changes to this policy</h2>
+<p>We will update this page whenever the practices change. For material changes we will notify you in-app or by email.</p>
+
+<h2>9. Contact</h2>
+<p>Questions or requests? Email <a href="mailto:support@weclips.app">support@weclips.app</a>.</p>
+"""
+
+_TERMS_BODY = """
+<p>By using WeClips you agree to these Terms.</p>
+
+<h2>1. Account</h2>
+<p>You must be at least 13 years old. You are responsible for safeguarding your password and for all activity on your account.</p>
+
+<h2>2. Community Guidelines</h2>
+<p>WeClips is a Christian-friendly community. You agree <b>not</b> to upload, post, or share content that:</p>
+<ul>
+  <li>Is sexually explicit, demonic, or violent in a glorifying way.</li>
+  <li>Promotes hate, harassment, or violence against any person or group.</li>
+  <li>Is generated by AI in whole or part. All content must be authored by you and depict real people, places, or scenes.</li>
+  <li>Infringes copyright, trademark, or other intellectual-property rights.</li>
+  <li>Contains malware, scams, or unsolicited advertising.</li>
+</ul>
+<p>We may remove any content and suspend or delete accounts that violate these rules.</p>
+
+<h2>3. Membership and billing</h2>
+<p>WeClips is $1 (USD) per month and unlocks ad-free viewing and uploading. Subscriptions auto-renew through Apple or Google until canceled. Manage or cancel anytime in your device's subscription settings.</p>
+
+<h2>4. Your content</h2>
+<p>You keep ownership of the videos and other content you upload. By uploading you grant WeClips a worldwide, royalty-free license to store, transmit, and display that content for the purpose of operating the service.</p>
+
+<h2>5. Termination</h2>
+<p>You may delete your account at any time from the Profile screen. We may suspend or terminate an account that violates these Terms or our Community Guidelines.</p>
+
+<h2>6. Disclaimers</h2>
+<p>WeClips is provided "as is". We do our best to keep the service running but make no guarantees of uninterrupted availability.</p>
+
+<h2>7. Limitation of liability</h2>
+<p>To the maximum extent allowed by law, WeClips is not liable for indirect, incidental, or consequential damages arising from your use of the service.</p>
+
+<h2>8. Governing law</h2>
+<p>These Terms are governed by the laws of the United States and the state where the WeClips founder resides.</p>
+
+<h2>9. Contact</h2>
+<p>Questions? Email <a href="mailto:support@weclips.app">support@weclips.app</a>.</p>
+"""
+
+_SUPPORT_BODY = """
+<p>Need help? We're a small team and read every message.</p>
+
+<h2>Email support</h2>
+<p><a href="mailto:support@weclips.app">support@weclips.app</a></p>
+
+<h2>Common questions</h2>
+<h3>How do I cancel my $1/month membership?</h3>
+<p>iPhone: Open <b>Settings</b> → tap your name → <b>Subscriptions</b> → tap <b>WeClips</b> → <b>Cancel Subscription</b>. Android: Open <b>Google Play Store</b> → tap your profile → <b>Payments &amp; subscriptions</b> → <b>Subscriptions</b> → <b>WeClips</b> → <b>Cancel</b>.</p>
+<h3>How do I delete my account?</h3>
+<p>Open the app → <b>Profile</b> tab → scroll to the bottom → tap <b>Delete account</b>. You have 30 days to change your mind by signing back in and tapping <b>Restore</b>.</p>
+<h3>How do I report a video or user?</h3>
+<p>Tap the video → use the <b>Report</b> option. Or open the user's profile → tap <b>Report</b>. We review every report.</p>
+<h3>I forgot my password.</h3>
+<p>On the Sign-in screen tap <b>Reset password</b>, enter your email, and we'll send a reset link.</p>
+<h3>Upload won't finish.</h3>
+<p>Make sure you're on Wi-Fi and your video is under 2&nbsp;GB. If the issue persists, email us with the video name and approximate size.</p>
+
+<h2>Bug reports</h2>
+<p>Include your iPhone/Android model, the version of the app, your username, and a short description of what happened.</p>
+"""
+
+
+@app.get("/api/legal/privacy", response_class=HTMLResponse, include_in_schema=False)
+async def legal_privacy_page():
+    return HTMLResponse(_legal_page("Privacy Policy", _PRIVACY_BODY))
+
+
+@app.get("/api/legal/terms", response_class=HTMLResponse, include_in_schema=False)
+async def legal_terms_page():
+    return HTMLResponse(_legal_page("Terms of Service", _TERMS_BODY))
+
+
+@app.get("/api/legal/support", response_class=HTMLResponse, include_in_schema=False)
+async def legal_support_page():
+    return HTMLResponse(_legal_page("Support", _SUPPORT_BODY))
+
+
+# Convenience short URLs without the /api prefix
+@app.get("/privacy", response_class=HTMLResponse, include_in_schema=False)
+async def legal_privacy_short():
+    return HTMLResponse(_legal_page("Privacy Policy", _PRIVACY_BODY))
+
+
+@app.get("/terms", response_class=HTMLResponse, include_in_schema=False)
+async def legal_terms_short():
+    return HTMLResponse(_legal_page("Terms of Service", _TERMS_BODY))
+
+
+@app.get("/support", response_class=HTMLResponse, include_in_schema=False)
+async def legal_support_short():
+    return HTMLResponse(_legal_page("Support", _SUPPORT_BODY))
 
 
 # --- Mount ---
