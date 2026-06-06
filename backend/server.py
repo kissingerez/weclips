@@ -133,6 +133,14 @@ class UserPublic(BaseModel):
     created_at: datetime
     deletion_pending: bool = False
     deletion_expires_at: Optional[datetime] = None
+    # --- Moderation status (visible to the user themselves so the app can
+    # show the banner / lock screen). Founder-only state is exposed via
+    # the admin endpoints.
+    warnings_count: int = 0
+    is_banned: bool = False
+    banned_until: Optional[datetime] = None
+    ban_reason: Optional[str] = None
+    ban_type: Optional[str] = None  # "temporary" | "permanent"
 
 
 class UserSearchResult(BaseModel):
@@ -254,6 +262,7 @@ def create_access_token(sub: str) -> str:
 
 
 async def get_current_user(
+    request: Request,
     creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer),
 ) -> dict:
     if creds is None:
@@ -269,6 +278,37 @@ async def get_current_user(
     user = await users_col.find_one({"_id": user_id}, {"password_hash": 0})
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+
+    # Auto-lift expired temporary bans so the user regains access naturally.
+    bs = _ban_state(user)
+    if user.get("is_banned") and not bs["is_banned"]:
+        await users_col.update_one(
+            {"_id": user_id},
+            {
+                "$set": {"is_banned": False},
+                "$unset": {"banned_until": "", "ban_reason": "", "ban_type": ""},
+            },
+        )
+        user["is_banned"] = False
+        user.pop("banned_until", None)
+        user.pop("ban_reason", None)
+        user.pop("ban_type", None)
+        bs = _ban_state(user)
+
+    if bs["is_banned"]:
+        # Allow the client to load profile so it can render the lock screen.
+        path = request.url.path
+        if not (path.endswith("/auth/me") or "/auth/me" in path):
+            until = bs["banned_until"].isoformat() if bs["banned_until"] else None
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "account_banned",
+                    "ban_type": bs["ban_type"],
+                    "banned_until": until,
+                    "reason": bs["ban_reason"],
+                },
+            )
     return user
 
 
@@ -339,6 +379,24 @@ async def require_subscriber_flexible(
     return user
 
 
+def _ban_state(u: dict) -> dict:
+    """Returns the current effective ban state for a user. Auto-expires
+    temporary bans once `banned_until` has passed."""
+    banned_until = u.get("banned_until")
+    if banned_until and banned_until.tzinfo is None:
+        banned_until = banned_until.replace(tzinfo=timezone.utc)
+    is_banned = bool(u.get("is_banned", False))
+    if is_banned and banned_until and banned_until < now_utc():
+        is_banned = False
+        banned_until = None
+    return {
+        "is_banned": is_banned,
+        "banned_until": banned_until,
+        "ban_reason": u.get("ban_reason") if is_banned else None,
+        "ban_type": u.get("ban_type") if is_banned else None,
+    }
+
+
 def user_to_public(u: dict, *, followers: int = 0, following: int = 0) -> UserPublic:
     deleted_at = u.get("deleted_at")
     deletion_pending = bool(deleted_at)
@@ -347,6 +405,7 @@ def user_to_public(u: dict, *, followers: int = 0, following: int = 0) -> UserPu
         if deleted_at.tzinfo is None:
             deleted_at = deleted_at.replace(tzinfo=timezone.utc)
         deletion_expires_at = deleted_at + timedelta(days=int(os.environ.get("DELETION_GRACE_DAYS", "30")))
+    bs = _ban_state(u)
     return UserPublic(
         id=u["_id"],
         email=u["email"],
@@ -364,6 +423,11 @@ def user_to_public(u: dict, *, followers: int = 0, following: int = 0) -> UserPu
         created_at=u["created_at"],
         deletion_pending=deletion_pending,
         deletion_expires_at=deletion_expires_at,
+        warnings_count=int(u.get("warnings_count", 0)),
+        is_banned=bs["is_banned"],
+        banned_until=bs["banned_until"],
+        ban_reason=bs["ban_reason"],
+        ban_type=bs["ban_type"],
     )
 
 
@@ -2316,7 +2380,6 @@ async def admin_delete_reported_content(
                 logger.warning("R2 delete failed during admin moderation: %s", exc)
             await videos_col.delete_one({"_id": target_id})
             await comments_col.delete_many({"video_id": target_id})
-            await likes_col.delete_many({"video_id": target_id})
     # For target_type == "user" we do NOT auto-delete the account here.
     # Founder still has the option to manually act after reviewing.
 
@@ -2336,10 +2399,262 @@ async def admin_delete_reported_content(
 
 
 # ---------------------------------------------------------------------------
-# Public legal pages (HTML) — used for App Store Connect Privacy Policy URL,
-# Support URL, and Terms of Service URL. Render simple, fully self-contained
-# HTML so they work from any browser without depending on the Expo build.
+# Founder moderation — user actions (warn / suspend / ban / unban)
 # ---------------------------------------------------------------------------
+WARNING_BODY = (
+    "We aim to create a fun environment at WeClips. Repeated violations to "
+    "our policies may result in temporary or permanent deletion of your account."
+)
+
+
+async def _target_user_from_report(report: dict) -> Optional[dict]:
+    """Resolve the user being moderated for a report row. Video reports
+    target the uploader; user reports target the user directly."""
+    if report["target_type"] == "user":
+        return await users_col.find_one({"_id": report["target_id"]})
+    if report["target_type"] == "video":
+        v = await videos_col.find_one(
+            {"_id": report["target_id"]}, {"user_id": 1}
+        )
+        if v:
+            return await users_col.find_one({"_id": v.get("user_id")})
+    return None
+
+
+async def _notify_user_moderation(
+    *, target_user_id: str, founder: dict, kind: str, text: str
+):
+    """Drop a notification into the target user's bell explaining the action."""
+    if target_user_id == founder["_id"]:
+        return
+    await notifications_col.insert_one(
+        {
+            "_id": str(uuid.uuid4()),
+            "recipient_id": target_user_id,
+            "type": kind,  # 'warning' | 'suspended' | 'banned'
+            "actor_id": founder["_id"],
+            "actor_name": "WeClips Moderation",
+            "actor_username": None,
+            "actor_has_avatar": False,
+            "video_id": None,
+            "video_title": None,
+            "text": text,
+            "read": False,
+            "created_at": now_utc(),
+        }
+    )
+
+
+async def _resolve_reports_for_target(
+    *, target_type: str, target_id: str, founder_id: str, resolution: str
+):
+    """Mark every open report against this target as resolved."""
+    await reports_col.update_many(
+        {"target_type": target_type, "target_id": target_id, "status": "open"},
+        {
+            "$set": {
+                "status": "resolved",
+                "resolved_by": founder_id,
+                "resolved_at": now_utc(),
+                "resolution": resolution,
+            }
+        },
+    )
+
+
+class ModerationActionReq(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+
+class SuspendReq(BaseModel):
+    days: int = Field(ge=1, le=365)
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+
+@api.post("/admin/reports/{report_id}/warn")
+async def admin_warn_user(
+    report_id: str,
+    body: ModerationActionReq,
+    user: dict = Depends(require_founder),
+):
+    r = await reports_col.find_one({"_id": report_id})
+    if not r:
+        raise HTTPException(status_code=404, detail="Report not found")
+    target = await _target_user_from_report(r)
+    if not target:
+        raise HTTPException(status_code=404, detail="Target user not found")
+    if target.get("is_founder"):
+        raise HTTPException(status_code=400, detail="Cannot warn a founder")
+
+    new_count = int(target.get("warnings_count", 0)) + 1
+    await users_col.update_one(
+        {"_id": target["_id"]},
+        {
+            "$set": {"last_warning_at": now_utc(), "warnings_count": new_count},
+            "$push": {
+                "warning_history": {
+                    "at": now_utc(),
+                    "by": user["_id"],
+                    "report_id": r["_id"],
+                    "reason": (body.reason or r.get("reason") or "").strip()[:500],
+                }
+            },
+        },
+    )
+
+    reason = (body.reason or r.get("reason") or "").strip()
+    msg = WARNING_BODY
+    if reason:
+        msg = f"Warning regarding: {reason}\n\n{WARNING_BODY}"
+    await _notify_user_moderation(
+        target_user_id=target["_id"],
+        founder=user,
+        kind="warning",
+        text=msg,
+    )
+    await _resolve_reports_for_target(
+        target_type=r["target_type"],
+        target_id=r["target_id"],
+        founder_id=user["_id"],
+        resolution="warned",
+    )
+    return {"status": "ok", "warnings_count": new_count}
+
+
+@api.post("/admin/reports/{report_id}/suspend")
+async def admin_suspend_user(
+    report_id: str,
+    body: SuspendReq,
+    user: dict = Depends(require_founder),
+):
+    r = await reports_col.find_one({"_id": report_id})
+    if not r:
+        raise HTTPException(status_code=404, detail="Report not found")
+    target = await _target_user_from_report(r)
+    if not target:
+        raise HTTPException(status_code=404, detail="Target user not found")
+    if target["_id"] == user["_id"]:
+        raise HTTPException(status_code=400, detail="Cannot moderate yourself")
+    if target.get("is_founder"):
+        raise HTTPException(status_code=400, detail="Cannot suspend a founder")
+
+    until = now_utc() + timedelta(days=int(body.days))
+    reason = (body.reason or r.get("reason") or "").strip()[:500]
+    await users_col.update_one(
+        {"_id": target["_id"]},
+        {
+            "$set": {
+                "is_banned": True,
+                "ban_type": "temporary",
+                "banned_until": until,
+                "ban_reason": reason or None,
+                "banned_at": now_utc(),
+                "banned_by": user["_id"],
+            }
+        },
+    )
+    msg = (
+        f"Your account has been suspended for {body.days} day(s) until "
+        f"{until.strftime('%b %d, %Y')}."
+    )
+    if reason:
+        msg += f"\n\nReason: {reason}"
+    msg += f"\n\n{WARNING_BODY}"
+    await _notify_user_moderation(
+        target_user_id=target["_id"],
+        founder=user,
+        kind="suspended",
+        text=msg,
+    )
+    await _resolve_reports_for_target(
+        target_type=r["target_type"],
+        target_id=r["target_id"],
+        founder_id=user["_id"],
+        resolution=f"suspended_{body.days}d",
+    )
+    return {"status": "ok", "banned_until": until.isoformat()}
+
+
+@api.post("/admin/reports/{report_id}/ban")
+async def admin_ban_user(
+    report_id: str,
+    body: ModerationActionReq,
+    user: dict = Depends(require_founder),
+):
+    r = await reports_col.find_one({"_id": report_id})
+    if not r:
+        raise HTTPException(status_code=404, detail="Report not found")
+    target = await _target_user_from_report(r)
+    if not target:
+        raise HTTPException(status_code=404, detail="Target user not found")
+    if target["_id"] == user["_id"]:
+        raise HTTPException(status_code=400, detail="Cannot moderate yourself")
+    if target.get("is_founder"):
+        raise HTTPException(status_code=400, detail="Cannot ban a founder")
+
+    reason = (body.reason or r.get("reason") or "").strip()[:500]
+    await users_col.update_one(
+        {"_id": target["_id"]},
+        {
+            "$set": {
+                "is_banned": True,
+                "ban_type": "permanent",
+                "banned_until": None,
+                "ban_reason": reason or None,
+                "banned_at": now_utc(),
+                "banned_by": user["_id"],
+            }
+        },
+    )
+    msg = "Your WeClips account has been permanently banned."
+    if reason:
+        msg += f"\n\nReason: {reason}"
+    msg += (
+        "\n\nYou will no longer be able to use WeClips. If you believe this "
+        "decision was made in error, contact support@weclips.app."
+    )
+    await _notify_user_moderation(
+        target_user_id=target["_id"],
+        founder=user,
+        kind="banned",
+        text=msg,
+    )
+    await _resolve_reports_for_target(
+        target_type=r["target_type"],
+        target_id=r["target_id"],
+        founder_id=user["_id"],
+        resolution="banned",
+    )
+    return {"status": "ok"}
+
+
+@api.post("/admin/users/{target_user_id}/unban")
+async def admin_unban_user(
+    target_user_id: str, user: dict = Depends(require_founder)
+):
+    target = await users_col.find_one({"_id": target_user_id})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    await users_col.update_one(
+        {"_id": target_user_id},
+        {
+            "$set": {"is_banned": False},
+            "$unset": {
+                "banned_until": "",
+                "ban_reason": "",
+                "ban_type": "",
+                "banned_at": "",
+                "banned_by": "",
+            },
+        },
+    )
+    await _notify_user_moderation(
+        target_user_id=target_user_id,
+        founder=user,
+        kind="warning",
+        text="Your WeClips account has been reinstated. Welcome back.",
+    )
+    return {"status": "ok"}
 def _legal_page(title: str, body_html: str) -> str:
     return f"""<!DOCTYPE html>
 <html lang="en">

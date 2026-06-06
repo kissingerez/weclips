@@ -17,7 +17,7 @@ import { colors, radius, spacing, text } from "@/src/theme";
 
 type Notification = {
   id: string;
-  type: "follow" | "comment" | "like" | "report";
+  type: "follow" | "comment" | "like" | "report" | "warning" | "suspended" | "banned";
   actor_id: string;
   actor_name: string;
   actor_username?: string | null;
@@ -49,6 +49,9 @@ const ICONS: Record<Notification["type"], { name: any; color: string }> = {
   comment: { name: "chatbubble", color: colors.brand },
   like: { name: "heart", color: colors.error },
   report: { name: "flag", color: "#D97706" },
+  warning: { name: "warning", color: "#D97706" },
+  suspended: { name: "time", color: "#D97706" },
+  banned: { name: "hand-left", color: colors.error },
 };
 
 const VERBS: Record<Notification["type"], string> = {
@@ -56,6 +59,9 @@ const VERBS: Record<Notification["type"], string> = {
   comment: "commented on your video",
   like: "liked your video",
   report: "filed a report",
+  warning: "sent you a warning",
+  suspended: "suspended your account",
+  banned: "banned your account",
 };
 
 export default function Notifications() {
@@ -89,7 +95,9 @@ export default function Notifications() {
 
   const tap = (n: Notification) => {
     if (n.type === "report") router.push("/admin/reports");
-    else if (n.type === "follow") router.push(`/user/${n.actor_id}`);
+    else if (n.type === "warning" || n.type === "suspended" || n.type === "banned") {
+      // No deep link — content is in the notification text itself.
+    } else if (n.type === "follow") router.push(`/user/${n.actor_id}`);
     else if (n.video_id) router.push(`/video/${n.video_id}`);
   };
 

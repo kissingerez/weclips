@@ -105,6 +105,76 @@ export default function AdminReports() {
     }
   };
 
+  const moderatedLabel = (r: AdminReport) => {
+    if (r.target_type === "video") {
+      return r.video_creator_name || "the uploader";
+    }
+    return (
+      r.user_display_name ||
+      (r.user_username ? `@${r.user_username}` : "this user")
+    );
+  };
+
+  const warn = async (r: AdminReport) => {
+    const who = moderatedLabel(r);
+    const ok = await confirmDialog(
+      `Send a warning to ${who}?`,
+      'They will receive an in-app notification with the policy reminder. The report will be marked as resolved.',
+      { confirmText: "Send warning" }
+    );
+    if (!ok) return;
+    setBusyId(r.id);
+    try {
+      await api.post(`/admin/reports/${r.id}/warn`, { reason: r.reason });
+      await load();
+    } catch (e: any) {
+      await alertDialog("Failed", e?.message || "Please try again.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const suspend = async (r: AdminReport, days: number) => {
+    const who = moderatedLabel(r);
+    const ok = await confirmDialog(
+      `Suspend ${who} for ${days} days?`,
+      `They won't be able to use WeClips until the suspension ends. All open reports against them will be resolved.`,
+      { confirmText: `Suspend ${days}d`, destructive: true }
+    );
+    if (!ok) return;
+    setBusyId(r.id);
+    try {
+      await api.post(`/admin/reports/${r.id}/suspend`, {
+        days,
+        reason: r.reason,
+      });
+      await load();
+    } catch (e: any) {
+      await alertDialog("Failed", e?.message || "Please try again.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const ban = async (r: AdminReport) => {
+    const who = moderatedLabel(r);
+    const ok = await confirmDialog(
+      `Permanently ban ${who}?`,
+      `Their access to WeClips will be revoked immediately and indefinitely. You can lift this later from the admin queue.`,
+      { confirmText: "Permanent ban", destructive: true }
+    );
+    if (!ok) return;
+    setBusyId(r.id);
+    try {
+      await api.post(`/admin/reports/${r.id}/ban`, { reason: r.reason });
+      await load();
+    } catch (e: any) {
+      await alertDialog("Failed", e?.message || "Please try again.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const deleteContent = async (r: AdminReport) => {
     const targetLabel =
       r.target_type === "video"
@@ -326,6 +396,42 @@ export default function AdminReports() {
                       {item.target_type === "video" ? "View video" : "View user"}
                     </Text>
                   </Pressable>
+                  <Pressable
+                    testID={`admin-report-${item.id}-warn`}
+                    disabled={busyId === item.id}
+                    style={[styles.btn, styles.btnWarn]}
+                    onPress={() => warn(item)}
+                  >
+                    <Ionicons name="warning" size={16} color="#78350F" />
+                    <Text style={styles.btnWarnText}>Warn</Text>
+                  </Pressable>
+                  <Pressable
+                    testID={`admin-report-${item.id}-suspend-7`}
+                    disabled={busyId === item.id}
+                    style={[styles.btn, styles.btnSuspend]}
+                    onPress={() => suspend(item, 7)}
+                  >
+                    <Ionicons name="time" size={16} color="#fff" />
+                    <Text style={styles.btnDangerText}>Suspend 7d</Text>
+                  </Pressable>
+                  <Pressable
+                    testID={`admin-report-${item.id}-suspend-30`}
+                    disabled={busyId === item.id}
+                    style={[styles.btn, styles.btnSuspend]}
+                    onPress={() => suspend(item, 30)}
+                  >
+                    <Ionicons name="time" size={16} color="#fff" />
+                    <Text style={styles.btnDangerText}>Suspend 30d</Text>
+                  </Pressable>
+                  <Pressable
+                    testID={`admin-report-${item.id}-ban`}
+                    disabled={busyId === item.id}
+                    style={[styles.btn, styles.btnDanger]}
+                    onPress={() => ban(item)}
+                  >
+                    <Ionicons name="hand-left" size={16} color="#fff" />
+                    <Text style={styles.btnDangerText}>Permanent ban</Text>
+                  </Pressable>
                   {item.target_type === "video" ? (
                     <Pressable
                       testID={`admin-report-${item.id}-delete`}
@@ -460,6 +566,9 @@ const styles = StyleSheet.create({
   btnSecondaryText: { color: colors.onSurface, fontWeight: "700", fontSize: 13 },
   btnDanger: { backgroundColor: colors.error },
   btnDangerText: { color: "#fff", fontWeight: "800", fontSize: 13 },
+  btnWarn: { backgroundColor: "#FEF3C7", borderWidth: 1, borderColor: "#FCD34D" },
+  btnWarnText: { color: "#78350F", fontWeight: "800", fontSize: 13 },
+  btnSuspend: { backgroundColor: "#D97706" },
   statusBadge: {
     alignSelf: "flex-start",
     flexDirection: "row",

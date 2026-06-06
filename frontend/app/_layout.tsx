@@ -18,9 +18,14 @@ function AuthGate() {
   useEffect(() => {
     if (loading) return;
     const inAuth = segments[0] === "(auth)";
+    const onBannedScreen = segments[0] === "banned";
     if (!user && !inAuth) {
       router.replace("/(auth)/login");
     } else if (user && inAuth) {
+      router.replace("/(tabs)/home");
+    } else if (user?.is_banned && !onBannedScreen) {
+      router.replace("/banned");
+    } else if (user && !user.is_banned && onBannedScreen) {
       router.replace("/(tabs)/home");
     }
   }, [user, loading, segments, router]);
@@ -49,6 +54,7 @@ export default function RootLayout() {
         <Stack.Screen name="video/[id]" options={{ presentation: "card" }} />
         <Stack.Screen name="paywall" options={{ presentation: "modal" }} />
         <Stack.Screen name="legal" options={{ presentation: "card" }} />
+        <Stack.Screen name="banned" options={{ presentation: "card", gestureEnabled: false }} />
       </Stack>
     </AuthProvider>
   );

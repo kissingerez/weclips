@@ -19,6 +19,11 @@ export type Me = {
   created_at: string;
   deletion_pending?: boolean;
   deletion_expires_at?: string | null;
+  warnings_count?: number;
+  is_banned?: boolean;
+  banned_until?: string | null;
+  ban_reason?: string | null;
+  ban_type?: "temporary" | "permanent" | null;
 };
 
 type AuthCtx = {
