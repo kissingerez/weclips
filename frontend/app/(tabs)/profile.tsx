@@ -5,6 +5,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
+import { confirmDialog } from "@/src/lib/dialogs";
 import { VideoCard, VideoCardData } from "@/src/components/VideoCard";
 import { Avatar } from "@/src/components/Avatar";
 import { colors, radius, spacing, text } from "@/src/theme";
@@ -234,21 +235,17 @@ export default function Profile() {
           ))}
           <Pressable
             testID="profile-delete-account"
-            onPress={() => {
-              if (typeof window !== "undefined" && window.confirm) {
-                if (
-                  !window.confirm(
-                    "Delete your account? You have 30 days to change your mind by signing back in and tapping Restore. After 30 days everything is permanently erased."
-                  )
-                )
-                  return;
-              }
-              (async () => {
-                try {
-                  await api.del("/auth/me");
-                  await refresh();
-                } catch {}
-              })();
+            onPress={async () => {
+              const ok = await confirmDialog(
+                "Delete your account?",
+                "You have 30 days to change your mind by signing back in and tapping Restore. After 30 days everything is permanently erased.",
+                { confirmText: "Delete account", destructive: true }
+              );
+              if (!ok) return;
+              try {
+                await api.del("/auth/me");
+                await refresh();
+              } catch {}
             }}
             style={[
               styles.legalRow,
@@ -294,17 +291,17 @@ export default function Profile() {
                 </Pressable>
                 <Pressable
                   testID={`profile-delete-video-${item.id}`}
-                  onPress={() => {
-                    if (typeof window !== "undefined" && window.confirm) {
-                      if (!window.confirm(`Delete "${item.title}"? This cannot be undone.`))
-                        return;
-                    }
-                    (async () => {
-                      try {
-                        await api.del(`/videos/${item.id}`);
-                        setVideos((prev) => prev.filter((v) => v.id !== item.id));
-                      } catch {}
-                    })();
+                  onPress={async () => {
+                    const ok = await confirmDialog(
+                      "Delete video?",
+                      `Delete "${item.title}"? This cannot be undone.`,
+                      { confirmText: "Delete", destructive: true }
+                    );
+                    if (!ok) return;
+                    try {
+                      await api.del(`/videos/${item.id}`);
+                      setVideos((prev) => prev.filter((v) => v.id !== item.id));
+                    } catch {}
                   }}
                   style={[styles.videoBtn, { backgroundColor: colors.error }]}
                   hitSlop={8}

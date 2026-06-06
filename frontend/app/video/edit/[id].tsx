@@ -172,9 +172,12 @@ export default function EditVideo() {
   };
 
   const onDelete = async () => {
-    if (typeof window !== "undefined" && window.confirm) {
-      if (!window.confirm("Delete this video? This cannot be undone.")) return;
-    }
+    const ok = await confirmDialog(
+      "Delete video?",
+      "This cannot be undone.",
+      { confirmText: "Delete", destructive: true }
+    );
+    if (!ok) return;
     try {
       await api.del(`/videos/${id}`);
       router.replace("/(tabs)/profile");

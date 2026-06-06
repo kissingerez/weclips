@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { API_BASE } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
+import { alertDialog, confirmDialog } from "@/src/lib/dialogs";
 import { colors, radius, spacing, text } from "@/src/theme";
 
 const SHARE_BASE = (process.env.EXPO_PUBLIC_SHARE_BASE_URL ||
@@ -47,20 +48,18 @@ export const VideoCard: React.FC<{ video: VideoCardData; onDeleted?: (id: string
     !!user?.is_founder && video.creator_id !== user.id;
 
   const founderDelete = async () => {
-    if (typeof window !== "undefined" && window.confirm) {
-      if (
-        !window.confirm(
-          `FOUNDER MODERATION\n\nDelete "${video.title}" from WeClips?\n\nThis cannot be undone.`
-        )
-      )
-        return;
-    }
+    const ok = await confirmDialog(
+      "Founder moderation",
+      `Delete "${video.title}" from WeClips?\n\nThis cannot be undone.`,
+      { confirmText: "Delete", destructive: true }
+    );
+    if (!ok) return;
     try {
       const { api } = await import("@/src/lib/api");
       await api.del(`/videos/${video.id}`);
       onDeleted && onDeleted(video.id);
     } catch (e: any) {
-      try { alert(e?.message || "Delete failed"); } catch {}
+      await alertDialog("Delete failed", e?.message || "Please try again.");
     }
   };
 

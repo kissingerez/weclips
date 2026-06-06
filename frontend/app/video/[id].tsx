@@ -19,6 +19,7 @@ import { api, API_BASE, ApiError } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
 import { shareVideo } from "@/src/components/VideoCard";
 import { tokenStorage } from "@/src/lib/tokenStorage";
+import { alertDialog, confirmDialog, promptDialog } from "@/src/lib/dialogs";
 import { colors, radius, spacing, text } from "@/src/theme";
 
 type VideoDetail = {
@@ -294,19 +295,30 @@ export default function VideoScreen() {
                     <Pressable
                       testID="video-report-button"
                       onPress={async () => {
-                        const reason = typeof window !== "undefined" && (window as any).prompt
-                          ? (window as any).prompt(
-                              "Report this video. Briefly describe why (e.g. spam, harassment, against guidelines)."
-                            )
-                          : "Reported via mobile";
-                        if (!reason) return;
+                        const reason = await promptDialog(
+                          "Report video",
+                          "Briefly describe why (spam, harassment, against guidelines).",
+                          {
+                            placeholder: "Reason",
+                            confirmText: "Submit report",
+                          }
+                        );
+                        if (reason === null) return;
+                        const trimmed = reason.trim();
+                        if (!trimmed) return;
                         try {
-                          await api.post(`/videos/${video.id}/report`, { reason: String(reason).slice(0, 500) });
-                          if (typeof window !== "undefined" && (window as any).alert)
-                            (window as any).alert("Thanks. Our team will review this report.");
+                          await api.post(`/videos/${video.id}/report`, {
+                            reason: trimmed.slice(0, 500),
+                          });
+                          await alertDialog(
+                            "Thanks",
+                            "Our team will review this report."
+                          );
                         } catch (e: any) {
-                          if (typeof window !== "undefined" && (window as any).alert)
-                            (window as any).alert(e?.message || "Could not report");
+                          await alertDialog(
+                            "Could not report",
+                            e?.message || "Please try again."
+                          );
                         }
                       }}
                       style={styles.actionBtn}
@@ -317,18 +329,20 @@ export default function VideoScreen() {
                     <Pressable
                       testID="video-block-button"
                       onPress={async () => {
-                        const ok = typeof window !== "undefined" && (window as any).confirm
-                          ? (window as any).confirm(
-                              `Block ${video.creator_name}?\n\nYou won't see their videos in your feed anymore. You can unblock them anytime from Profile → Blocked accounts.`
-                            )
-                          : true;
+                        const ok = await confirmDialog(
+                          `Block ${video.creator_name}?`,
+                          "You won't see their videos in your feed anymore. You can unblock them anytime from Profile → Blocked accounts.",
+                          { confirmText: "Block", destructive: true }
+                        );
                         if (!ok) return;
                         try {
                           await api.post(`/users/${video.creator_id}/block`);
                           router.back();
                         } catch (e: any) {
-                          if (typeof window !== "undefined" && (window as any).alert)
-                            (window as any).alert(e?.message || "Could not block");
+                          await alertDialog(
+                            "Could not block",
+                            e?.message || "Please try again."
+                          );
                         }
                       }}
                       style={styles.actionBtn}
@@ -341,24 +355,22 @@ export default function VideoScreen() {
                 {user?.is_founder && video.creator_id !== user.id ? (
                   <Pressable
                     testID="video-founder-delete"
-                    onPress={() => {
-                      if (typeof window !== "undefined" && window.confirm) {
-                        if (
-                          !window.confirm(
-                            `FOUNDER ACTION\n\nDelete "${video.title}" from WeClips?\n\nThis cannot be undone.`
-                          )
-                        )
-                          return;
+                    onPress={async () => {
+                      const ok = await confirmDialog(
+                        "Founder action",
+                        `Delete "${video.title}" from WeClips?\n\nThis cannot be undone.`,
+                        { confirmText: "Delete", destructive: true }
+                      );
+                      if (!ok) return;
+                      try {
+                        await api.del(`/videos/${video.id}`);
+                        router.back();
+                      } catch (e: any) {
+                        await alertDialog(
+                          "Delete failed",
+                          e?.message || "Please try again."
+                        );
                       }
-                      (async () => {
-                        try {
-                          await api.del(`/videos/${video.id}`);
-                          router.back();
-                        } catch (e: any) {
-                          // best-effort feedback
-                          alert(e?.message || "Delete failed");
-                        }
-                      })();
                     }}
                     style={styles.founderDeleteBtn}
                   >
