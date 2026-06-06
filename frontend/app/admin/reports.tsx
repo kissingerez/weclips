@@ -34,6 +34,11 @@ type AdminReport = {
   user_display_name?: string | null;
   user_username?: string | null;
   target_missing?: boolean;
+  target_user_id?: string | null;
+  target_warnings_count?: number;
+  target_is_banned?: boolean;
+  target_ban_type?: "temporary" | "permanent" | null;
+  target_banned_until?: string | null;
 };
 
 type StatusFilter = "open" | "resolved" | "dismissed" | "all";
@@ -344,6 +349,51 @@ export default function AdminReports() {
                 ) : null}
               </Text>
 
+              {(item.target_warnings_count && item.target_warnings_count > 0) ||
+              item.target_is_banned ? (
+                <View style={styles.modPills}>
+                  {item.target_warnings_count && item.target_warnings_count > 0 ? (
+                    <View
+                      style={[styles.modPill, styles.modPillWarn]}
+                      testID={`admin-report-${item.id}-warnings`}
+                    >
+                      <Ionicons name="warning" size={11} color="#78350F" />
+                      <Text style={styles.modPillWarnText}>
+                        {item.target_warnings_count} warning
+                        {item.target_warnings_count === 1 ? "" : "s"}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {item.target_is_banned ? (
+                    <View
+                      style={[styles.modPill, styles.modPillBan]}
+                      testID={`admin-report-${item.id}-banned`}
+                    >
+                      <Ionicons
+                        name={
+                          item.target_ban_type === "permanent"
+                            ? "hand-left"
+                            : "time"
+                        }
+                        size={11}
+                        color="#fff"
+                      />
+                      <Text style={styles.modPillBanText}>
+                        {item.target_ban_type === "permanent"
+                          ? "Banned"
+                          : `Suspended${
+                              item.target_banned_until
+                                ? ` until ${new Date(
+                                    item.target_banned_until
+                                  ).toLocaleDateString()}`
+                                : ""
+                            }`}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+
               {item.status !== "open" ? (
                 <View
                   style={[
@@ -569,6 +619,19 @@ const styles = StyleSheet.create({
   btnWarn: { backgroundColor: "#FEF3C7", borderWidth: 1, borderColor: "#FCD34D" },
   btnWarnText: { color: "#78350F", fontWeight: "800", fontSize: 13 },
   btnSuspend: { backgroundColor: "#D97706" },
+  modPills: { flexDirection: "row", gap: spacing.xs, flexWrap: "wrap" },
+  modPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+  },
+  modPillWarn: { backgroundColor: "#FEF3C7", borderWidth: 1, borderColor: "#FCD34D" },
+  modPillWarnText: { color: "#78350F", fontSize: 11, fontWeight: "800" },
+  modPillBan: { backgroundColor: colors.error },
+  modPillBanText: { color: "#fff", fontSize: 11, fontWeight: "800" },
   statusBadge: {
     alignSelf: "flex-start",
     flexDirection: "row",

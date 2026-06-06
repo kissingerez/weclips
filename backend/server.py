@@ -151,6 +151,15 @@ class UserSearchResult(BaseModel):
     has_avatar: bool = False
     followers_hidden: bool = False
     followers: int = 0
+    # Founder-only moderation fields. Populated by `get_user_public` and
+    # `_users_to_results` only when the *viewer* is a founder. Kept on the
+    # generic UserSearchResult so the same model serves search + profile.
+    is_banned: bool = False
+    ban_type: Optional[str] = None
+    banned_until: Optional[datetime] = None
+    ban_reason: Optional[str] = None
+    warnings_count: int = 0
+    is_founder: bool = False
 
 
 class UpdateMeReq(BaseModel):
@@ -558,10 +567,20 @@ async def search_users(
 
 @api.get("/users/{target_user_id}", response_model=UserSearchResult)
 async def get_user_public(target_user_id: str, user: dict = Depends(get_current_user)):
-    u = await users_col.find_one(
-        {"_id": target_user_id},
-        {"display_name": 1, "username": 1, "avatar_base64": 1, "bio": 1, "followers_hidden": 1},
-    )
+    proj = {
+        "display_name": 1,
+        "username": 1,
+        "avatar_base64": 1,
+        "bio": 1,
+        "followers_hidden": 1,
+        "is_founder": 1,
+        "is_banned": 1,
+        "ban_type": 1,
+        "banned_until": 1,
+        "ban_reason": 1,
+        "warnings_count": 1,
+    }
+    u = await users_col.find_one({"_id": target_user_id}, proj)
     if not u:
         raise HTTPException(status_code=404, detail="User not found")
     hidden = bool(u.get("followers_hidden", False))
@@ -572,7 +591,7 @@ async def get_user_public(target_user_id: str, user: dict = Depends(get_current_
         if (is_owner or not hidden)
         else 0
     )
-    return UserSearchResult(
+    result = UserSearchResult(
         id=u["_id"],
         display_name=u.get("display_name") or "User",
         username=u.get("username"),
@@ -580,7 +599,17 @@ async def get_user_public(target_user_id: str, user: dict = Depends(get_current_
         has_avatar=bool(u.get("avatar_base64")),
         followers_hidden=hidden,
         followers=followers,
+        is_founder=bool(u.get("is_founder", False)),
     )
+    # Only expose moderation state to other founders.
+    if user.get("is_founder"):
+        bs = _ban_state(u)
+        result.is_banned = bs["is_banned"]
+        result.ban_type = bs["ban_type"]
+        result.banned_until = bs["banned_until"]
+        result.ban_reason = bs["ban_reason"]
+        result.warnings_count = int(u.get("warnings_count", 0))
+    return result
 
 
 @api.get("/users/{target_user_id}/followers", response_model=List[UserSearchResult])
@@ -2247,6 +2276,13 @@ class AdminReport(BaseModel):
     user_display_name: Optional[str] = None
     user_username: Optional[str] = None
     target_missing: bool = False
+    # Moderation state of the user being moderated (uploader for video reports,
+    # the user themselves for user reports). Useful for spotting repeat offenders.
+    target_user_id: Optional[str] = None
+    target_warnings_count: int = 0
+    target_is_banned: bool = False
+    target_ban_type: Optional[str] = None
+    target_banned_until: Optional[datetime] = None
 
 
 @api.get("/admin/reports", response_model=List[AdminReport])
@@ -2288,13 +2324,28 @@ async def list_reports(
         ):
             videos_map[v["_id"]] = v
 
-    users_map: dict = {}
-    if user_ids:
-        async for u in users_col.find(
-            {"_id": {"$in": user_ids}},
-            {"_id": 1, "display_name": 1, "username": 1},
+    # Resolve every "target user" (uploader for video reports + target for user reports)
+    target_user_ids = set(user_ids)
+    for v in videos_map.values():
+        if v.get("user_id"):
+            target_user_ids.add(v["user_id"])
+    target_users_map: dict = {}
+    if target_user_ids:
+        async for tu in users_col.find(
+            {"_id": {"$in": list(target_user_ids)}},
+            {
+                "_id": 1,
+                "display_name": 1,
+                "username": 1,
+                "is_banned": 1,
+                "ban_type": 1,
+                "banned_until": 1,
+                "warnings_count": 1,
+            },
         ):
-            users_map[u["_id"]] = u
+            target_users_map[tu["_id"]] = tu
+
+    users_map: dict = {k: v for k, v in target_users_map.items() if k in user_ids}
 
     out: List[AdminReport] = []
     for r in rows:
@@ -2310,6 +2361,7 @@ async def list_reports(
             reporter_name=(rep.get("display_name") if rep else None),
             reporter_username=(rep.get("username") if rep else None),
         )
+        moderated_user: Optional[dict] = None
         if r["target_type"] == "video":
             v = videos_map.get(r["target_id"])
             if v:
@@ -2320,6 +2372,8 @@ async def list_reports(
                     ts = v.get("thumbnail_updated_at")
                     suffix = f"?v={ts.isoformat()}" if ts else ""
                     item.video_thumbnail_url = f"/api/videos/{v['_id']}/thumbnail{suffix}"
+                if v.get("user_id"):
+                    moderated_user = target_users_map.get(v["user_id"])
             else:
                 item.target_missing = True
         else:  # user
@@ -2327,8 +2381,16 @@ async def list_reports(
             if tu:
                 item.user_display_name = tu.get("display_name")
                 item.user_username = tu.get("username")
+                moderated_user = tu
             else:
                 item.target_missing = True
+        if moderated_user:
+            bs = _ban_state(moderated_user)
+            item.target_user_id = moderated_user["_id"]
+            item.target_warnings_count = int(moderated_user.get("warnings_count", 0))
+            item.target_is_banned = bs["is_banned"]
+            item.target_ban_type = bs["ban_type"]
+            item.target_banned_until = bs["banned_until"]
         out.append(item)
     return out
 

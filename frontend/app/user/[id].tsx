@@ -11,6 +11,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api, ApiError } from "@/src/lib/api";
+import { useAuth } from "@/src/lib/auth";
+import { alertDialog, confirmDialog } from "@/src/lib/dialogs";
 import { Avatar } from "@/src/components/Avatar";
 import { VideoCard, VideoCardData } from "@/src/components/VideoCard";
 import { colors, radius, spacing, text } from "@/src/theme";
@@ -23,17 +25,26 @@ type PublicUser = {
   has_avatar?: boolean;
   followers_hidden?: boolean;
   followers: number;
+  is_founder?: boolean;
+  // Founder-only moderation fields
+  is_banned?: boolean;
+  ban_type?: "temporary" | "permanent" | null;
+  banned_until?: string | null;
+  ban_reason?: string | null;
+  warnings_count?: number;
 };
 
 export default function UserProfile() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { user: me } = useAuth();
   const [user, setUser] = useState<PublicUser | null>(null);
   const [videos, setVideos] = useState<VideoCardData[]>([]);
   const [following, setFollowing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [unbanBusy, setUnbanBusy] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -83,6 +94,26 @@ export default function UserProfile() {
       }
     } catch {}
     setBusy(false);
+  };
+
+  const liftBan = async () => {
+    if (!user || unbanBusy) return;
+    const ok = await confirmDialog(
+      `Lift ban on ${user.display_name}?`,
+      "They will regain immediate access to WeClips and receive a reinstatement notice.",
+      { confirmText: "Lift ban" }
+    );
+    if (!ok) return;
+    setUnbanBusy(true);
+    try {
+      await api.post(`/admin/users/${user.id}/unban`);
+      await load();
+      await alertDialog("Done", `${user.display_name} has been reinstated.`);
+    } catch (e: any) {
+      await alertDialog("Failed", e?.message || "Please try again.");
+    } finally {
+      setUnbanBusy(false);
+    }
   };
 
   if (loading) {
@@ -157,6 +188,73 @@ export default function UserProfile() {
           <Text style={styles.bio} testID="user-profile-bio">
             {user.bio}
           </Text>
+        ) : null}
+
+        {me?.is_founder && (user.is_banned || (user.warnings_count ?? 0) > 0) ? (
+          <View
+            style={[
+              styles.modBanner,
+              user.is_banned ? styles.modBannerBan : styles.modBannerWarn,
+            ]}
+            testID="user-profile-mod-banner"
+          >
+            <View style={styles.modBannerHeader}>
+              <Ionicons
+                name={
+                  user.is_banned
+                    ? user.ban_type === "permanent"
+                      ? "hand-left"
+                      : "time"
+                    : "warning"
+                }
+                size={18}
+                color={user.is_banned ? "#fff" : "#78350F"}
+              />
+              <Text
+                style={[
+                  styles.modBannerTitle,
+                  { color: user.is_banned ? "#fff" : "#78350F" },
+                ]}
+              >
+                {user.is_banned
+                  ? user.ban_type === "permanent"
+                    ? "Permanently banned"
+                    : `Suspended${
+                        user.banned_until
+                          ? ` until ${new Date(user.banned_until).toLocaleDateString()}`
+                          : ""
+                      }`
+                  : `${user.warnings_count} warning${
+                      user.warnings_count === 1 ? "" : "s"
+                    } on record`}
+              </Text>
+            </View>
+            {user.ban_reason ? (
+              <Text
+                style={[
+                  styles.modBannerReason,
+                  { color: user.is_banned ? "#fff" : "#78350F" },
+                ]}
+              >
+                {user.ban_reason}
+              </Text>
+            ) : null}
+            {user.is_banned ? (
+              <Pressable
+                testID="user-profile-lift-ban"
+                disabled={unbanBusy}
+                onPress={liftBan}
+                style={styles.liftBanBtn}
+              >
+                {unbanBusy ? (
+                  <ActivityIndicator color={colors.error} size="small" />
+                ) : (
+                  <Ionicons name="lock-open" size={16} color={colors.error} />
+                )}
+                <Text style={styles.liftBanText}>Lift ban</Text>
+              </Pressable>
+            ) : null}
+          </View>
         ) : null}
 
         <View style={styles.actions}>
@@ -240,6 +338,33 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     lineHeight: 20,
   },
+  modBanner: {
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  modBannerWarn: {
+    backgroundColor: "#FEF3C7",
+    borderWidth: 1,
+    borderColor: "#FCD34D",
+  },
+  modBannerBan: { backgroundColor: colors.error },
+  modBannerHeader: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  modBannerTitle: { fontSize: text.base, fontWeight: "800" },
+  modBannerReason: { fontSize: text.sm, lineHeight: 18 },
+  liftBanBtn: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#fff",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+  },
+  liftBanText: { color: colors.error, fontWeight: "800", fontSize: 13 },
   actions: { paddingHorizontal: spacing.lg, marginBottom: spacing.md },
   followBtn: {
     backgroundColor: colors.brand,
