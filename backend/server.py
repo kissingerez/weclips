@@ -325,6 +325,12 @@ async def require_subscriber(user: dict = Depends(get_current_user)) -> dict:
     return user
 
 
+async def require_founder(user: dict = Depends(get_current_user)) -> dict:
+    if not user.get("is_founder", False):
+        raise HTTPException(status_code=403, detail="Founder access required")
+    return user
+
+
 async def require_subscriber_flexible(
     user: dict = Depends(get_current_user_flexible),
 ) -> dict:
@@ -1841,12 +1847,13 @@ class SimpleReportReq(BaseModel):
 async def report_video(
     video_id: str, body: SimpleReportReq, user: dict = Depends(get_current_user)
 ):
-    v = await videos_col.find_one({"_id": video_id}, {"_id": 1})
+    v = await videos_col.find_one({"_id": video_id}, {"_id": 1, "title": 1, "user_id": 1})
     if not v:
         raise HTTPException(status_code=404, detail="Video not found")
+    report_id = str(uuid.uuid4())
     await reports_col.insert_one(
         {
-            "_id": str(uuid.uuid4()),
+            "_id": report_id,
             "reporter_id": user["_id"],
             "target_type": "video",
             "target_id": video_id,
@@ -1854,6 +1861,14 @@ async def report_video(
             "status": "open",
             "created_at": now_utc(),
         }
+    )
+    await _notify_founders_of_report(
+        actor=user,
+        target_type="video",
+        target_id=video_id,
+        target_label=v.get("title"),
+        reason=body.reason.strip(),
+        report_id=report_id,
     )
     return {"status": "ok"}
 
@@ -1866,9 +1881,16 @@ async def report_user(
 ):
     if target_user_id == user["_id"]:
         raise HTTPException(status_code=400, detail="Cannot report yourself")
+    target = await users_col.find_one(
+        {"_id": target_user_id}, {"_id": 1, "display_name": 1, "username": 1}
+    )
+    label = None
+    if target:
+        label = target.get("display_name") or target.get("username")
+    report_id = str(uuid.uuid4())
     await reports_col.insert_one(
         {
-            "_id": str(uuid.uuid4()),
+            "_id": report_id,
             "reporter_id": user["_id"],
             "target_type": "user",
             "target_id": target_user_id,
@@ -1876,6 +1898,14 @@ async def report_user(
             "status": "open",
             "created_at": now_utc(),
         }
+    )
+    await _notify_founders_of_report(
+        actor=user,
+        target_type="user",
+        target_id=target_user_id,
+        target_label=label,
+        reason=body.reason.strip(),
+        report_id=report_id,
     )
     return {"status": "ok"}
 
@@ -1993,7 +2023,7 @@ async def follow_status(target_user_id: str, user: dict = Depends(get_current_us
 
 class NotificationPublic(BaseModel):
     id: str
-    type: str  # 'follow' | 'comment' | 'like'
+    type: str  # 'follow' | 'comment' | 'like' | 'report'
     actor_id: str
     actor_name: str
     actor_username: Optional[str] = None
@@ -2001,6 +2031,8 @@ class NotificationPublic(BaseModel):
     video_id: Optional[str] = None
     video_title: Optional[str] = None
     text: Optional[str] = None
+    report_id: Optional[str] = None
+    report_target_type: Optional[str] = None
     read: bool = False
     created_at: datetime
 
@@ -2063,6 +2095,8 @@ async def list_notifications(user: dict = Depends(get_current_user), limit: int 
                 video_id=n.get("video_id"),
                 video_title=n.get("video_title"),
                 text=n.get("text"),
+                report_id=n.get("report_id"),
+                report_target_type=n.get("report_target_type"),
                 read=bool(n.get("read")),
                 created_at=n["created_at"],
             )
@@ -2084,6 +2118,221 @@ async def mark_read(user: dict = Depends(get_current_user)):
         {"recipient_id": user["_id"], "read": False}, {"$set": {"read": True}}
     )
     return {"modified": result.modified_count}
+
+
+# ---------------------------------------------------------------------------
+# Founder moderation — report queue
+# ---------------------------------------------------------------------------
+async def _notify_founders_of_report(
+    *,
+    actor: dict,
+    target_type: str,
+    target_id: str,
+    target_label: Optional[str],
+    reason: str,
+    report_id: str,
+):
+    """Send an in-app notification to every founder when a report is filed."""
+    actor_name = actor.get("display_name") or "Someone"
+    label = target_label or ("a video" if target_type == "video" else "a user")
+    short_reason = (reason or "").strip()
+    if len(short_reason) > 160:
+        short_reason = short_reason[:157] + "…"
+    text = f'Reported {target_type} "{label}": {short_reason}'
+
+    founders = users_col.find({"is_founder": True}, {"_id": 1})
+    async for f in founders:
+        if f["_id"] == actor["_id"]:
+            continue
+        await notifications_col.insert_one(
+            {
+                "_id": str(uuid.uuid4()),
+                "recipient_id": f["_id"],
+                "type": "report",
+                "actor_id": actor["_id"],
+                "actor_name": actor_name,
+                "actor_username": actor.get("username"),
+                "actor_has_avatar": bool(actor.get("avatar_base64")),
+                "video_id": target_id if target_type == "video" else None,
+                "video_title": target_label if target_type == "video" else None,
+                "text": text,
+                "report_id": report_id,
+                "report_target_type": target_type,
+                "report_target_id": target_id,
+                "read": False,
+                "created_at": now_utc(),
+            }
+        )
+
+
+class AdminReport(BaseModel):
+    id: str
+    target_type: str
+    target_id: str
+    reason: str
+    status: str
+    created_at: datetime
+    reporter_id: str
+    reporter_name: Optional[str] = None
+    reporter_username: Optional[str] = None
+    # Enriched target info
+    video_title: Optional[str] = None
+    video_thumbnail_url: Optional[str] = None
+    video_creator_id: Optional[str] = None
+    video_creator_name: Optional[str] = None
+    user_display_name: Optional[str] = None
+    user_username: Optional[str] = None
+    target_missing: bool = False
+
+
+@api.get("/admin/reports", response_model=List[AdminReport])
+async def list_reports(
+    status: str = "open",
+    limit: int = 100,
+    user: dict = Depends(require_founder),
+):
+    if status not in ("open", "resolved", "dismissed", "all"):
+        raise HTTPException(status_code=400, detail="Invalid status filter")
+    q: dict = {} if status == "all" else {"status": status}
+    cursor = reports_col.find(q).sort("created_at", -1).limit(min(max(limit, 1), 500))
+    rows: List[dict] = [r async for r in cursor]
+
+    reporter_ids = list({r["reporter_id"] for r in rows})
+    video_ids = list({r["target_id"] for r in rows if r["target_type"] == "video"})
+    user_ids = list({r["target_id"] for r in rows if r["target_type"] == "user"})
+
+    reporters_map: dict = {}
+    if reporter_ids:
+        async for u in users_col.find(
+            {"_id": {"$in": reporter_ids}},
+            {"_id": 1, "display_name": 1, "username": 1},
+        ):
+            reporters_map[u["_id"]] = u
+
+    videos_map: dict = {}
+    if video_ids:
+        async for v in videos_col.find(
+            {"_id": {"$in": video_ids}},
+            {
+                "_id": 1,
+                "title": 1,
+                "has_thumbnail": 1,
+                "thumbnail_updated_at": 1,
+                "user_id": 1,
+                "creator_name": 1,
+            },
+        ):
+            videos_map[v["_id"]] = v
+
+    users_map: dict = {}
+    if user_ids:
+        async for u in users_col.find(
+            {"_id": {"$in": user_ids}},
+            {"_id": 1, "display_name": 1, "username": 1},
+        ):
+            users_map[u["_id"]] = u
+
+    out: List[AdminReport] = []
+    for r in rows:
+        rep = reporters_map.get(r["reporter_id"])
+        item = AdminReport(
+            id=r["_id"],
+            target_type=r["target_type"],
+            target_id=r["target_id"],
+            reason=r.get("reason", ""),
+            status=r.get("status", "open"),
+            created_at=r["created_at"],
+            reporter_id=r["reporter_id"],
+            reporter_name=(rep.get("display_name") if rep else None),
+            reporter_username=(rep.get("username") if rep else None),
+        )
+        if r["target_type"] == "video":
+            v = videos_map.get(r["target_id"])
+            if v:
+                item.video_title = v.get("title")
+                item.video_creator_id = v.get("user_id")
+                item.video_creator_name = v.get("creator_name")
+                if v.get("has_thumbnail"):
+                    ts = v.get("thumbnail_updated_at")
+                    suffix = f"?v={ts.isoformat()}" if ts else ""
+                    item.video_thumbnail_url = f"/api/videos/{v['_id']}/thumbnail{suffix}"
+            else:
+                item.target_missing = True
+        else:  # user
+            tu = users_map.get(r["target_id"])
+            if tu:
+                item.user_display_name = tu.get("display_name")
+                item.user_username = tu.get("username")
+            else:
+                item.target_missing = True
+        out.append(item)
+    return out
+
+
+@api.get("/admin/reports/summary")
+async def admin_reports_summary(user: dict = Depends(require_founder)):
+    open_count = await reports_col.count_documents({"status": "open"})
+    return {"open": open_count}
+
+
+@api.post("/admin/reports/{report_id}/dismiss")
+async def dismiss_report(report_id: str, user: dict = Depends(require_founder)):
+    r = await reports_col.find_one({"_id": report_id})
+    if not r:
+        raise HTTPException(status_code=404, detail="Report not found")
+    await reports_col.update_one(
+        {"_id": report_id},
+        {
+            "$set": {
+                "status": "dismissed",
+                "resolved_by": user["_id"],
+                "resolved_at": now_utc(),
+                "resolution": "dismissed",
+            }
+        },
+    )
+    return {"status": "ok"}
+
+
+@api.post("/admin/reports/{report_id}/delete-content")
+async def admin_delete_reported_content(
+    report_id: str, user: dict = Depends(require_founder)
+):
+    r = await reports_col.find_one({"_id": report_id})
+    if not r:
+        raise HTTPException(status_code=404, detail="Report not found")
+    target_type = r["target_type"]
+    target_id = r["target_id"]
+
+    if target_type == "video":
+        v = await videos_col.find_one({"_id": target_id})
+        if v:
+            # Best-effort: remove the underlying R2 object too (mirrors the
+            # behaviour of the standard delete endpoint).
+            try:
+                if v.get("r2_key"):
+                    s3.delete_object(Bucket=R2_BUCKET, Key=v["r2_key"])
+            except Exception as exc:
+                logger.warning("R2 delete failed during admin moderation: %s", exc)
+            await videos_col.delete_one({"_id": target_id})
+            await comments_col.delete_many({"video_id": target_id})
+            await likes_col.delete_many({"video_id": target_id})
+    # For target_type == "user" we do NOT auto-delete the account here.
+    # Founder still has the option to manually act after reviewing.
+
+    # Resolve every open report that pointed at the same target.
+    await reports_col.update_many(
+        {"target_type": target_type, "target_id": target_id, "status": "open"},
+        {
+            "$set": {
+                "status": "resolved",
+                "resolved_by": user["_id"],
+                "resolved_at": now_utc(),
+                "resolution": "content_deleted" if target_type == "video" else "acknowledged",
+            }
+        },
+    )
+    return {"status": "ok"}
 
 
 # ---------------------------------------------------------------------------

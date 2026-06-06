@@ -17,7 +17,7 @@ import { colors, radius, spacing, text } from "@/src/theme";
 
 type Notification = {
   id: string;
-  type: "follow" | "comment" | "like";
+  type: "follow" | "comment" | "like" | "report";
   actor_id: string;
   actor_name: string;
   actor_username?: string | null;
@@ -25,6 +25,8 @@ type Notification = {
   video_id?: string | null;
   video_title?: string | null;
   text?: string | null;
+  report_id?: string | null;
+  report_target_type?: "video" | "user" | null;
   read: boolean;
   created_at: string;
 };
@@ -46,12 +48,14 @@ const ICONS: Record<Notification["type"], { name: any; color: string }> = {
   follow: { name: "person-add", color: colors.brand },
   comment: { name: "chatbubble", color: colors.brand },
   like: { name: "heart", color: colors.error },
+  report: { name: "flag", color: "#D97706" },
 };
 
 const VERBS: Record<Notification["type"], string> = {
   follow: "started following you",
   comment: "commented on your video",
   like: "liked your video",
+  report: "filed a report",
 };
 
 export default function Notifications() {
@@ -84,7 +88,8 @@ export default function Notifications() {
   };
 
   const tap = (n: Notification) => {
-    if (n.type === "follow") router.push(`/user/${n.actor_id}`);
+    if (n.type === "report") router.push("/admin/reports");
+    else if (n.type === "follow") router.push(`/user/${n.actor_id}`);
     else if (n.video_id) router.push(`/video/${n.video_id}`);
   };
 

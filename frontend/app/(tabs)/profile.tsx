@@ -15,6 +15,7 @@ export default function Profile() {
   const router = useRouter();
   const [videos, setVideos] = useState<VideoCardData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [openReports, setOpenReports] = useState<number>(0);
 
   const load = useCallback(async () => {
     try {
@@ -29,10 +30,20 @@ export default function Profile() {
     }
   }, [refresh]);
 
+  const loadFounderSummary = useCallback(async () => {
+    try {
+      const r = await api.get<{ open: number }>("/admin/reports/summary");
+      setOpenReports(r.open || 0);
+    } catch {
+      setOpenReports(0);
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       load();
-    }, [load])
+      if (user?.is_founder) loadFounderSummary();
+    }, [load, loadFounderSummary, user?.is_founder])
   );
 
   return (
@@ -212,6 +223,28 @@ export default function Profile() {
         </View>
 
         <View style={styles.legalMenu} testID="profile-legal-menu">
+          {user?.is_founder ? (
+            <Pressable
+              testID="profile-founder-reports"
+              onPress={() => router.push("/admin/reports")}
+              style={[styles.legalRow, styles.founderRow]}
+            >
+              <View style={styles.founderRowLeft}>
+                <View style={styles.founderRowIcon}>
+                  <Ionicons name="shield-checkmark" size={16} color="#1A1A1A" />
+                </View>
+                <Text style={[styles.legalLabel, { fontWeight: "800" }]}>
+                  Founder · Reports
+                </Text>
+                {openReports > 0 ? (
+                  <View style={styles.openCountPill} testID="profile-founder-reports-count">
+                    <Text style={styles.openCountText}>{openReports}</Text>
+                  </View>
+                ) : null}
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            </Pressable>
+          ) : null}
           {[
             { key: "blocked", label: "Blocked accounts", route: "/blocked" },
             { key: "guidelines", label: "Community Guidelines" },
@@ -404,6 +437,32 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
   },
   legalLabel: { color: colors.onSurface, fontSize: text.base },
+  founderRow: {
+    backgroundColor: "#FFF8E1",
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: "#FFB300",
+    marginBottom: spacing.sm,
+  },
+  founderRowLeft: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  founderRowIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: "#FFB300",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  openCountPill: {
+    backgroundColor: colors.error,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.pill,
+    minWidth: 22,
+    alignItems: "center",
+  },
+  openCountText: { color: "#fff", fontSize: 11, fontWeight: "800" },
   deletionBanner: {
     flexDirection: "row",
     alignItems: "center",
