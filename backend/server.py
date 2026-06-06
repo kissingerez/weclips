@@ -520,6 +520,21 @@ async def username_available(u: str):
     return {"available": not exists, "username": norm}
 
 
+async def _batch_follower_counts(user_ids: List[str]) -> dict:
+    """Return {user_id: follower_count} for the given ids in a single query.
+    Avoids the N+1 pattern of calling count_documents per user."""
+    if not user_ids:
+        return {}
+    pipeline = [
+        {"$match": {"followee_id": {"$in": user_ids}}},
+        {"$group": {"_id": "$followee_id", "n": {"$sum": 1}}},
+    ]
+    counts: dict = {}
+    async for row in follows_col.aggregate(pipeline):
+        counts[row["_id"]] = int(row["n"])
+    return counts
+
+
 @api.get("/users/search", response_model=List[UserSearchResult])
 async def search_users(
     q: str,
@@ -545,12 +560,18 @@ async def search_users(
         },
         {"_id": 1, "display_name": 1, "username": 1, "avatar_base64": 1, "bio": 1, "followers_hidden": 1},
     ).limit(min(max(limit, 1), 50))
-    results: List[UserSearchResult] = []
+    rows: List[dict] = []
     async for u in cursor:
         if u["_id"] == user["_id"]:
             continue
+        rows.append(u)
+    # Batch follower lookup — single $group aggregation instead of N queries.
+    visible_ids = [u["_id"] for u in rows if not bool(u.get("followers_hidden", False))]
+    counts = await _batch_follower_counts(visible_ids)
+    results: List[UserSearchResult] = []
+    for u in rows:
         hidden = bool(u.get("followers_hidden", False))
-        followers = 0 if hidden else await follows_col.count_documents({"followee_id": u["_id"]})
+        followers = 0 if hidden else int(counts.get(u["_id"], 0))
         results.append(
             UserSearchResult(
                 id=u["_id"],
@@ -660,10 +681,20 @@ async def _users_to_results(user_ids: List[str], viewer_id: str) -> List[UserSea
     async for u in cursor:
         rows.append(u)
     rows.sort(key=lambda u: order.get(u["_id"], 0))
+    # Batch follower lookup — only fetch counts for users whose followers are
+    # visible to this viewer (owner can always see their own count).
+    countable_ids = [
+        u["_id"]
+        for u in rows
+        if (not bool(u.get("followers_hidden", False))) or viewer_id == u["_id"]
+    ]
+    counts = await _batch_follower_counts(countable_ids)
     for u in rows:
         hidden = bool(u.get("followers_hidden", False))
-        followers = 0 if (hidden and viewer_id != u["_id"]) else await follows_col.count_documents(
-            {"followee_id": u["_id"]}
+        followers = (
+            int(counts.get(u["_id"], 0))
+            if (not hidden or viewer_id == u["_id"])
+            else 0
         )
         out.append(
             UserSearchResult(
