@@ -1940,7 +1940,7 @@ class SimpleReportReq(BaseModel):
 async def report_video(
     video_id: str, body: SimpleReportReq, user: dict = Depends(get_current_user)
 ):
-    v = await videos_col.find_one({"_id": video_id}, {"_id": 1, "title": 1, "user_id": 1})
+    v = await videos_col.find_one({"_id": video_id}, {"_id": 1, "title": 1, "creator_id": 1})
     if not v:
         raise HTTPException(status_code=404, detail="Video not found")
     report_id = str(uuid.uuid4())
@@ -2318,7 +2318,7 @@ async def list_reports(
                 "title": 1,
                 "has_thumbnail": 1,
                 "thumbnail_updated_at": 1,
-                "user_id": 1,
+                "creator_id": 1,
                 "creator_name": 1,
             },
         ):
@@ -2327,8 +2327,8 @@ async def list_reports(
     # Resolve every "target user" (uploader for video reports + target for user reports)
     target_user_ids = set(user_ids)
     for v in videos_map.values():
-        if v.get("user_id"):
-            target_user_ids.add(v["user_id"])
+        if v.get("creator_id"):
+            target_user_ids.add(v["creator_id"])
     target_users_map: dict = {}
     if target_user_ids:
         async for tu in users_col.find(
@@ -2366,14 +2366,14 @@ async def list_reports(
             v = videos_map.get(r["target_id"])
             if v:
                 item.video_title = v.get("title")
-                item.video_creator_id = v.get("user_id")
+                item.video_creator_id = v.get("creator_id")
                 item.video_creator_name = v.get("creator_name")
                 if v.get("has_thumbnail"):
                     ts = v.get("thumbnail_updated_at")
                     suffix = f"?v={ts.isoformat()}" if ts else ""
                     item.video_thumbnail_url = f"/api/videos/{v['_id']}/thumbnail{suffix}"
-                if v.get("user_id"):
-                    moderated_user = target_users_map.get(v["user_id"])
+                if v.get("creator_id"):
+                    moderated_user = target_users_map.get(v["creator_id"])
             else:
                 item.target_missing = True
         else:  # user
