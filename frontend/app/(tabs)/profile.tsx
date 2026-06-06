@@ -223,10 +223,10 @@ export default function Profile() {
             >
               <View style={styles.founderRowLeft}>
                 <View style={styles.founderRowIcon}>
-                  <Ionicons name="shield-checkmark" size={16} color="#1A1A1A" />
+                  <Ionicons name="flag" size={16} color="#1A1A1A" />
                 </View>
                 <Text style={[styles.legalLabel, { fontWeight: "800" }]}>
-                  Founder · Reports
+                  Reports
                 </Text>
                 {openReports > 0 ? (
                   <View style={styles.openCountPill} testID="profile-founder-reports-count">
