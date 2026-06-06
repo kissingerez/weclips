@@ -163,14 +163,6 @@ export default function Profile() {
                   {user?.is_subscribed ? "Member · Active" : "Free"}
                 </Text>
               </View>
-              {user?.is_founder ? (
-                <View style={[styles.statusBadge, styles.founderBadge]}>
-                  <Ionicons name="shield-checkmark" size={12} color={colors.onBrand} />
-                  <Text style={[styles.statusText, { color: colors.onBrand }]}>
-                    Founder
-                  </Text>
-                </View>
-              ) : null}
             </View>
           </View>
         </View>

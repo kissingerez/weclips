@@ -1,0 +1,40 @@
+{
+  "summary": "Backend moderation pipeline tested via pytest: 20/21 tests pass. Found and FIXED one critical bug (banned-accounts projection silently unbanned every banned user). Found one more CRITICAL bug (video reports never enrich target user moderation state because the admin moderation code reads field `user_id` while uploads persist `creator_id`) — reported for main agent to fix.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/admin/reports + POST /api/admin/reports/{id}/warn|suspend|ban (video reports)",
+        "issue": "Admin moderation code looks up the video uploader via `videos.user_id`, but `upload_video` stores it as `creator_id`. As a result, for every video-type report: (a) list_reports returns target_user_id=None and target_warnings_count=0/target_is_banned=False regardless of the uploader's real state, and (b) warn/suspend/ban actions on a video report fail with 404 'Target user not found' because `_target_user_from_report` returns None. See server.py L2321 (projection `user_id: 1`), L2369 (`v.get('user_id')`), and L2479-2482 (`_target_user_from_report`). Fix: replace `user_id` with `creator_id` in those three places (or persist both).",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_moderation.py",
+    "/app/test_reports/pytest/moderation_results.xml"
+  ],
+  "action_items": [
+    "Fix video-vs-creator field mismatch in /app/backend/server.py: change `user_id` → `creator_id` in (1) list_reports projection (~L2321), (2) `item.video_creator_id = v.get('user_id')` (~L2369), (3) `_target_user_from_report` projection and access (~L2479-2482). After fix, re-run pytest /app/backend/tests/test_moderation.py — the only failing test (test_list_open_reports_enriched) should pass."
+  ],
+  "critical_code_review_comments": [
+    "FIXED by testing agent: /api/admin/banned-accounts projection (server.py ~L2740) omitted `is_banned: 1`. Because the cursor only loaded fields without is_banned, _ban_state defaulted is_banned to False, the endpoint treated every banned user as auto-expired, AND issued a `$set: {is_banned: False}` update — silently unbanning every banned user whenever a founder opened the Banned tab. Added `is_banned: 1` to the projection.",
+    "Video document field naming is inconsistent across the codebase: upload writes `creator_id` (server.py L1290) but moderation lookups read `user_id`. Consider standardising on one or adding a migration."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (added `is_banned: 1` to /admin/banned-accounts projection)",
+    "/app/backend/tests/test_moderation.py (new pytest suite, 21 tests)"
+  ],
+  "success_rate": {"backend": "95% (20/21)", "frontend": "n/a (backend-only request)"},
+  "seed_data_creation": "Created 4 fresh users via /api/auth/signup (founder, uploader, reporter, bystander). Founder was elevated via direct MongoDB update on users.is_founder. Uploader was activated with /subscription/dev-activate and uploaded 1 multipart video (later deleted by admin delete-content). Test data is prefixed TEST_ and torn down at module end.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "After main agent fixes the user_id→creator_id mismatch in /app/backend/server.py (3 spots flagged), re-run `pytest /app/backend/tests/test_moderation.py -v --junitxml=/app/test_reports/pytest/moderation_results.xml`. The previously failing test_list_open_reports_enriched should pass. The video upload in tests uses multipart form-data (title/description/mime_type/no_ai_confirmed as form fields + `file` upload). MongoDB direct access uses MONGO_URL + DB_NAME from backend/.env; pymongo is available.",
+  "rca_of_issue": "BUG #1 (FIXED): admin_banned_accounts projection didn't include is_banned. _ban_state(u) computed `is_banned = bool(u.get('is_banned', False))` = False because the field wasn't loaded. The endpoint then thought the ban had auto-expired, ran `users.update_one(... $set: {is_banned: False})`, and skipped the user — effectively un-banning every banned account on each founder visit. RCA: missing field in projection. MITIGATION: added `is_banned: 1` to the projection. BUG #2 (REPORTED): admin moderation code expects video docs to expose `user_id`, but uploads persist `creator_id`. Cross-collection field-name drift. RCA: schema field naming was never reconciled when the report enrichment was added. MITIGATION: replace `user_id` with `creator_id` in the three flagged spots."
+}

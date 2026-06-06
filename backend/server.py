@@ -2717,6 +2717,66 @@ async def admin_unban_user(
         text="Your WeClips account has been reinstated. Welcome back.",
     )
     return {"status": "ok"}
+
+
+class BannedAccount(BaseModel):
+    id: str
+    display_name: str
+    username: Optional[str] = None
+    has_avatar: bool = False
+    ban_type: Optional[str] = None
+    banned_until: Optional[datetime] = None
+    banned_at: Optional[datetime] = None
+    ban_reason: Optional[str] = None
+    warnings_count: int = 0
+
+
+@api.get("/admin/banned-accounts", response_model=List[BannedAccount])
+async def admin_banned_accounts(user: dict = Depends(require_founder)):
+    """Lists every account that is currently banned (temporary or permanent)
+    so the founder can lift bans without finding the originating report."""
+    cursor = users_col.find(
+        {"is_banned": True},
+        {
+            "_id": 1,
+            "display_name": 1,
+            "username": 1,
+            "avatar_base64": 1,
+            "is_banned": 1,
+            "ban_type": 1,
+            "banned_until": 1,
+            "banned_at": 1,
+            "ban_reason": 1,
+            "warnings_count": 1,
+        },
+    ).sort("banned_at", -1).limit(500)
+    out: List[BannedAccount] = []
+    async for u in cursor:
+        bs = _ban_state(u)
+        if not bs["is_banned"]:
+            # Auto-expired temp ban — lift it lazily.
+            await users_col.update_one(
+                {"_id": u["_id"]},
+                {
+                    "$set": {"is_banned": False},
+                    "$unset": {"banned_until": "", "ban_reason": "", "ban_type": ""},
+                },
+            )
+            continue
+        out.append(
+            BannedAccount(
+                id=u["_id"],
+                display_name=u.get("display_name") or "User",
+                username=u.get("username"),
+                has_avatar=bool(u.get("avatar_base64")),
+                ban_type=bs["ban_type"],
+                banned_until=bs["banned_until"],
+                banned_at=u.get("banned_at"),
+                ban_reason=bs["ban_reason"],
+                warnings_count=int(u.get("warnings_count", 0)),
+            )
+        )
+    return out
 def _legal_page(title: str, body_html: str) -> str:
     return f"""<!DOCTYPE html>
 <html lang="en">

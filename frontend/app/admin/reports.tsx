@@ -41,7 +41,19 @@ type AdminReport = {
   target_banned_until?: string | null;
 };
 
-type StatusFilter = "open" | "resolved" | "dismissed" | "all";
+type StatusFilter = "open" | "resolved" | "dismissed" | "all" | "banned";
+
+type BannedAccount = {
+  id: string;
+  display_name: string;
+  username?: string | null;
+  has_avatar?: boolean;
+  ban_type?: "temporary" | "permanent" | null;
+  banned_until?: string | null;
+  banned_at?: string | null;
+  ban_reason?: string | null;
+  warnings_count?: number;
+};
 
 function timeAgo(iso: string): string {
   const t = new Date(iso).getTime();
@@ -60,6 +72,7 @@ export default function AdminReports() {
   const router = useRouter();
   const { user } = useAuth();
   const [items, setItems] = useState<AdminReport[]>([]);
+  const [bannedItems, setBannedItems] = useState<BannedAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<StatusFilter>("open");
@@ -67,12 +80,18 @@ export default function AdminReports() {
 
   const load = useCallback(async () => {
     try {
-      const data = await api.get<AdminReport[]>(
-        `/admin/reports?status=${filter}`
-      );
-      setItems(data);
+      if (filter === "banned") {
+        const data = await api.get<BannedAccount[]>("/admin/banned-accounts");
+        setBannedItems(data);
+      } else {
+        const data = await api.get<AdminReport[]>(
+          `/admin/reports?status=${filter}`
+        );
+        setItems(data);
+      }
     } catch (e: any) {
       setItems([]);
+      setBannedItems([]);
       if (e?.status === 403) {
         await alertDialog("Founder access only", "This area is restricted.");
         router.back();
@@ -238,29 +257,165 @@ export default function AdminReports() {
       </View>
 
       <View style={styles.filterRow}>
-        {(["open", "resolved", "dismissed", "all"] as StatusFilter[]).map((s) => (
-          <Pressable
-            key={s}
-            testID={`admin-reports-filter-${s}`}
-            onPress={() => setFilter(s)}
-            style={[styles.filterChip, filter === s && styles.filterChipActive]}
-          >
-            <Text
-              style={[
-                styles.filterText,
-                filter === s && styles.filterTextActive,
-              ]}
+        {(["open", "resolved", "dismissed", "all", "banned"] as StatusFilter[]).map(
+          (s) => (
+            <Pressable
+              key={s}
+              testID={`admin-reports-filter-${s}`}
+              onPress={() => setFilter(s)}
+              style={[styles.filterChip, filter === s && styles.filterChipActive]}
             >
-              {s[0].toUpperCase() + s.slice(1)}
-            </Text>
-          </Pressable>
-        ))}
+              <Text
+                style={[
+                  styles.filterText,
+                  filter === s && styles.filterTextActive,
+                ]}
+              >
+                {s[0].toUpperCase() + s.slice(1)}
+              </Text>
+            </Pressable>
+          )
+        )}
       </View>
 
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.brand} />
         </View>
+      ) : filter === "banned" ? (
+        bannedItems.length === 0 ? (
+          <View style={styles.center}>
+            <Ionicons name="shield-checkmark" size={56} color={colors.brand} />
+            <Text style={styles.emptyTitle}>No banned accounts</Text>
+            <Text style={styles.emptySub}>
+              Suspended and permanently banned users will appear here.
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            testID="admin-banned-list"
+            data={bannedItems}
+            keyExtractor={(b) => b.id}
+            contentContainerStyle={{ paddingVertical: spacing.md }}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            }
+            ItemSeparatorComponent={() => <View style={{ height: spacing.md }} />}
+            renderItem={({ item }) => (
+              <View style={styles.card} testID={`admin-banned-${item.id}`}>
+                <Pressable
+                  onPress={() => router.push(`/user/${item.id}`)}
+                  style={styles.cardHeader}
+                >
+                  <View style={[styles.thumb, styles.thumbFallback]}>
+                    <Ionicons
+                      name={
+                        item.ban_type === "permanent" ? "hand-left" : "time"
+                      }
+                      size={28}
+                      color={colors.error}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.title} numberOfLines={1}>
+                      {item.display_name}
+                    </Text>
+                    {item.username ? (
+                      <Text style={styles.subtitle}>@{item.username}</Text>
+                    ) : null}
+                    <View style={[styles.modPills, { marginTop: spacing.xs }]}>
+                      <View style={[styles.modPill, styles.modPillBan]}>
+                        <Ionicons
+                          name={
+                            item.ban_type === "permanent"
+                              ? "hand-left"
+                              : "time"
+                          }
+                          size={11}
+                          color="#fff"
+                        />
+                        <Text style={styles.modPillBanText}>
+                          {item.ban_type === "permanent"
+                            ? "Permanent"
+                            : `Until ${
+                                item.banned_until
+                                  ? new Date(
+                                      item.banned_until
+                                    ).toLocaleDateString()
+                                  : "—"
+                              }`}
+                        </Text>
+                      </View>
+                      {item.warnings_count && item.warnings_count > 0 ? (
+                        <View style={[styles.modPill, styles.modPillWarn]}>
+                          <Ionicons name="warning" size={11} color="#78350F" />
+                          <Text style={styles.modPillWarnText}>
+                            {item.warnings_count} warning
+                            {item.warnings_count === 1 ? "" : "s"}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  </View>
+                </Pressable>
+
+                {item.ban_reason ? (
+                  <View style={styles.reasonBox}>
+                    <Ionicons name="flag" size={14} color="#78350F" />
+                    <Text style={styles.reasonText}>{item.ban_reason}</Text>
+                  </View>
+                ) : null}
+
+                <View style={styles.actionsRow}>
+                  <Pressable
+                    testID={`admin-banned-${item.id}-view`}
+                    style={[styles.btn, styles.btnSecondary]}
+                    onPress={() => router.push(`/user/${item.id}`)}
+                  >
+                    <Ionicons
+                      name="open-outline"
+                      size={16}
+                      color={colors.onSurface}
+                    />
+                    <Text style={styles.btnSecondaryText}>View profile</Text>
+                  </Pressable>
+                  <Pressable
+                    testID={`admin-banned-${item.id}-lift`}
+                    disabled={busyId === item.id}
+                    style={[styles.btn, styles.btnPrimary]}
+                    onPress={async () => {
+                      const ok = await confirmDialog(
+                        `Lift ban on ${item.display_name}?`,
+                        "They will regain immediate access to WeClips.",
+                        { confirmText: "Lift ban" }
+                      );
+                      if (!ok) return;
+                      setBusyId(item.id);
+                      try {
+                        await api.post(`/admin/users/${item.id}/unban`);
+                        await load();
+                      } catch (e: any) {
+                        await alertDialog(
+                          "Failed",
+                          e?.message || "Please try again."
+                        );
+                      } finally {
+                        setBusyId(null);
+                      }
+                    }}
+                  >
+                    {busyId === item.id ? (
+                      <ActivityIndicator color={colors.onBrand} size="small" />
+                    ) : (
+                      <Ionicons name="lock-open" size={16} color={colors.onBrand} />
+                    )}
+                    <Text style={styles.btnPrimaryText}>Lift ban</Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
+          />
+        )
       ) : items.length === 0 ? (
         <View style={styles.center}>
           <Ionicons name="shield-checkmark" size={56} color={colors.brand} />
@@ -632,6 +787,8 @@ const styles = StyleSheet.create({
   modPillWarnText: { color: "#78350F", fontSize: 11, fontWeight: "800" },
   modPillBan: { backgroundColor: colors.error },
   modPillBanText: { color: "#fff", fontSize: 11, fontWeight: "800" },
+  btnPrimary: { backgroundColor: colors.brand },
+  btnPrimaryText: { color: colors.onBrand, fontWeight: "800", fontSize: 13 },
   statusBadge: {
     alignSelf: "flex-start",
     flexDirection: "row",
