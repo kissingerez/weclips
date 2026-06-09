@@ -90,7 +90,7 @@ const SECTIONS: Record<string, { title: string; body: string[] }> = {
     title: "About & Contact",
     body: [
       `WeClips is an ad-free, $0.99/month video platform built for people who want watchable, comprehensible video.`,
-      `Owner & operator: (please update in /app/frontend/app/legal.tsx with your legal name + jurisdiction)`,
+      `Owner & operator: Nixon Kissinger Rodriguez, International.`,
       `Support: ${SUPPORT_EMAIL}`,
       `Subscription billing is handled by Apple App Store and Google Play.`,
       `Video storage and delivery: Cloudflare R2.`,

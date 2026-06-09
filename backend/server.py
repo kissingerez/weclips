@@ -2956,6 +2956,9 @@ _TERMS_BODY = """
 _SUPPORT_BODY = """
 <p>Need help? We're a small team and read every message.</p>
 
+<h2>Owner &amp; operator</h2>
+<p>WeClips is owned and operated by <b>Nixon Kissinger Rodriguez, International</b>.</p>
+
 <h2>Email support</h2>
 <p><a href="mailto:support@weclips.app">support@weclips.app</a></p>
 
