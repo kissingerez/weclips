@@ -15,6 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { api, API_BASE } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
 import { alertDialog, confirmDialog } from "@/src/lib/dialogs";
+import { Toast } from "@/src/components/Toast";
 import { colors, radius, spacing, text } from "@/src/theme";
 
 type AdminReport = {
@@ -77,6 +78,14 @@ export default function AdminReports() {
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<StatusFilter>("open");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ msg: string; variant: "success" | "error" | "info" } | null>(null);
+
+  const showToast = useCallback(
+    (msg: string, variant: "success" | "error" | "info" = "success") => {
+      setToast({ msg, variant });
+    },
+    []
+  );
 
   const load = useCallback(async () => {
     try {
@@ -122,8 +131,9 @@ export default function AdminReports() {
     try {
       await api.post(`/admin/reports/${r.id}/dismiss`);
       setItems((prev) => prev.filter((x) => x.id !== r.id));
+      showToast("Report dismissed", "success");
     } catch (e: any) {
-      await alertDialog("Failed", e?.message || "Please try again.");
+      showToast(e?.message || "Could not dismiss", "error");
     } finally {
       setBusyId(null);
     }
@@ -150,9 +160,10 @@ export default function AdminReports() {
     setBusyId(r.id);
     try {
       await api.post(`/admin/reports/${r.id}/warn`, { reason: r.reason });
+      showToast(`Warning sent to ${who}`, "success");
       await load();
     } catch (e: any) {
-      await alertDialog("Failed", e?.message || "Please try again.");
+      showToast(e?.message || "Could not send warning", "error");
     } finally {
       setBusyId(null);
     }
@@ -172,9 +183,10 @@ export default function AdminReports() {
         days,
         reason: r.reason,
       });
+      showToast(`${who} suspended for ${days} days`, "success");
       await load();
     } catch (e: any) {
-      await alertDialog("Failed", e?.message || "Please try again.");
+      showToast(e?.message || "Could not suspend", "error");
     } finally {
       setBusyId(null);
     }
@@ -191,9 +203,10 @@ export default function AdminReports() {
     setBusyId(r.id);
     try {
       await api.post(`/admin/reports/${r.id}/ban`, { reason: r.reason });
+      showToast(`${who} permanently banned`, "success");
       await load();
     } catch (e: any) {
-      await alertDialog("Failed", e?.message || "Please try again.");
+      showToast(e?.message || "Could not ban", "error");
     } finally {
       setBusyId(null);
     }
@@ -220,10 +233,11 @@ export default function AdminReports() {
     setBusyId(r.id);
     try {
       await api.post(`/admin/reports/${r.id}/delete-content`);
+      showToast("Video deleted and report resolved", "success");
       // Refresh in case multiple reports about same target got resolved
       await load();
     } catch (e: any) {
-      await alertDialog("Failed", e?.message || "Please try again.");
+      showToast(e?.message || "Could not delete", "error");
     } finally {
       setBusyId(null);
     }
@@ -393,11 +407,12 @@ export default function AdminReports() {
                       setBusyId(item.id);
                       try {
                         await api.post(`/admin/users/${item.id}/unban`);
+                        showToast(`${item.display_name} reinstated`, "success");
                         await load();
                       } catch (e: any) {
-                        await alertDialog(
-                          "Failed",
-                          e?.message || "Please try again."
+                        showToast(
+                          e?.message || "Could not lift ban",
+                          "error"
                         );
                       } finally {
                         setBusyId(null);
@@ -664,6 +679,12 @@ export default function AdminReports() {
           )}
         />
       )}
+      <Toast
+        message={toast?.msg ?? null}
+        variant={toast?.variant ?? "success"}
+        onHide={() => setToast(null)}
+        testID="admin-reports-toast"
+      />
     </SafeAreaView>
   );
 }

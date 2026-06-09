@@ -2430,7 +2430,7 @@ async def list_reports(
                 if v.get("has_thumbnail"):
                     ts = v.get("thumbnail_updated_at")
                     suffix = f"?v={ts.isoformat()}" if ts else ""
-                    item.video_thumbnail_url = f"/api/videos/{v['_id']}/thumbnail{suffix}"
+                    item.video_thumbnail_url = f"/videos/{v['_id']}/thumbnail{suffix}"
                 if v.get("creator_id"):
                     moderated_user = target_users_map.get(v["creator_id"])
             else:
