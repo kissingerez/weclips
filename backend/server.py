@@ -48,7 +48,7 @@ PASSWORD_RESET_TTL_MIN = int(os.environ.get("PASSWORD_RESET_TTL_MIN", "15"))
 
 # Upload limits (cost-saving: 180-minute videos only)
 MAX_VIDEO_DURATION_SEC = int(os.environ.get("MAX_VIDEO_DURATION_SEC", "10800"))
-MAX_VIDEO_SIZE_BYTES = int(os.environ.get("MAX_VIDEO_SIZE_BYTES", str(200 * 1024 * 1024)))  # 200 MB hard cap
+MAX_VIDEO_SIZE_BYTES = int(os.environ.get("MAX_VIDEO_SIZE_BYTES", str(5 * 1024 * 1024 * 1024)))  # 5 GB hard cap
 
 # Contact (shown in app + legal pages — required by Apple for UGC apps)
 SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "support@weclips.app")
@@ -1252,7 +1252,7 @@ async def complete_upload(video_id: str, user: dict = Depends(require_subscriber
         await videos_col.delete_one({"_id": video_id})
         raise HTTPException(
             status_code=413,
-            detail=f"File too large ({size // (1024*1024)} MB). Max {MAX_VIDEO_SIZE_BYTES // (1024*1024)} MB per upload. Try lowering resolution.",
+            detail=f"File too large ({size // (1024*1024)} MB). Max {MAX_VIDEO_SIZE_BYTES // (1024*1024*1024)} GB per upload. Try lowering resolution.",
         )
 
     # Server-side duration enforcement (clients can be bypassed). We probe via
