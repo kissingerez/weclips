@@ -70,7 +70,7 @@ export default function Upload() {
     try {
       const { uri } = await VideoThumbnails.getThumbnailAsync(videoUri, {
         time: Math.max(0, Math.round(timeMs)),
-        quality: 0.7,
+        quality: 0.9,
       });
       const resp = await fetch(uri);
       const blob = await resp.blob();
@@ -155,9 +155,11 @@ export default function Upload() {
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-      // Slightly lower bitrate for smoother playback; still HD
-      videoQuality: ImagePicker.UIImagePickerControllerQualityType.IFrame1280x720,
-      videoExportPreset: ImagePicker.VideoExportPreset.MediumQuality,
+      // Full 1080p capture so playback stays crisp on big phones / tablets.
+      // Android: videoQuality 1 = "high" (uses device-native max). iOS: the
+      // export preset is what controls the final encode, so we pin 1080p H.264.
+      videoQuality: 1,
+      videoExportPreset: ImagePicker.VideoExportPreset.H264_1920x1080,
       allowsEditing: false,
     });
     if (result.canceled || !result.assets?.[0]) return;
