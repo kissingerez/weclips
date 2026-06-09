@@ -168,11 +168,11 @@ export default function Upload() {
     if (dur && dur > 0) {
       // expo-image-picker returns seconds on web, milliseconds on native — normalise to seconds
       const seconds = dur > 1000 ? dur / 1000 : dur;
-      if (seconds > 600) {
+      if (seconds > 10800) {
         const mins = Math.floor(seconds / 60);
         const secs = Math.round(seconds % 60);
         setErr(
-          `Videos must be 10 minutes or less. This clip is ${mins}m ${secs}s.`
+          `Videos must be 180 minutes or less. This clip is ${mins}m ${secs}s.`
         );
         return;
       }
@@ -316,7 +316,7 @@ export default function Upload() {
                 {pickedSize ? `  ·  ${formatBytes(pickedSize)}` : ""}
               </Text>
             ) : (
-              <Text style={styles.dropSub}>Up to 10 min, max 2GB. MP4 recommended.</Text>
+              <Text style={styles.dropSub}>Up to 180 min, max 2GB. MP4 recommended.</Text>
             )}
           </Pressable>
 

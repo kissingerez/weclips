@@ -28,8 +28,19 @@ export type VideoCardData = {
   views: number;
   has_thumbnail: boolean;
   thumbnail_updated_at?: string | null;
+  duration_sec?: number | null;
   created_at: string;
 };
+
+function formatDuration(sec?: number | null): string | null {
+  if (!sec || sec <= 0) return null;
+  const total = Math.round(sec);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+}
 
 export const VideoCard: React.FC<{ video: VideoCardData; onDeleted?: (id: string) => void }> = ({
   video,
@@ -46,6 +57,7 @@ export const VideoCard: React.FC<{ video: VideoCardData; onDeleted?: (id: string
   const locked = !user?.is_subscribed;
   const showFounderDelete =
     !!user?.is_founder && video.creator_id !== user.id;
+  const durationLabel = formatDuration(video.duration_sec);
 
   const founderDelete = async () => {
     const ok = await confirmDialog(
@@ -105,6 +117,11 @@ export const VideoCard: React.FC<{ video: VideoCardData; onDeleted?: (id: string
             <Text style={styles.founderChipText}>Delete</Text>
           </Pressable>
         )}
+        {durationLabel ? (
+          <View style={styles.durationChip} pointerEvents="none">
+            <Text style={styles.durationText}>{durationLabel}</Text>
+          </View>
+        ) : null}
       </View>
       <View style={styles.meta}>
         <Text style={styles.title} numberOfLines={2}>
@@ -156,6 +173,21 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   founderChipText: { color: "#1A1A1A", fontSize: 11, fontWeight: "800" },
+  durationChip: {
+    position: "absolute",
+    bottom: spacing.sm,
+    right: spacing.sm,
+    backgroundColor: "rgba(0,0,0,0.78)",
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+  },
+  durationText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+  },
   meta: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },
   title: { color: colors.onSurface, fontSize: text.lg, fontWeight: "700", marginBottom: spacing.xs },
   sub: { color: colors.onSurfaceSecondary, fontSize: text.sm },

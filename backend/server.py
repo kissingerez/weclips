@@ -46,8 +46,8 @@ SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
 SENDGRID_SENDER_EMAIL = os.environ.get("SENDGRID_SENDER_EMAIL", "")
 PASSWORD_RESET_TTL_MIN = int(os.environ.get("PASSWORD_RESET_TTL_MIN", "15"))
 
-# Upload limits (cost-saving: 10-minute videos only)
-MAX_VIDEO_DURATION_SEC = int(os.environ.get("MAX_VIDEO_DURATION_SEC", "600"))
+# Upload limits (cost-saving: 180-minute videos only)
+MAX_VIDEO_DURATION_SEC = int(os.environ.get("MAX_VIDEO_DURATION_SEC", "10800"))
 MAX_VIDEO_SIZE_BYTES = int(os.environ.get("MAX_VIDEO_SIZE_BYTES", str(200 * 1024 * 1024)))  # 200 MB hard cap
 
 # Contact (shown in app + legal pages — required by Apple for UGC apps)
@@ -207,6 +207,7 @@ class VideoPublic(BaseModel):
     likes: int
     has_thumbnail: bool
     thumbnail_updated_at: Optional[datetime] = None
+    duration_sec: Optional[float] = None
     created_at: datetime
 
 
@@ -461,6 +462,7 @@ def video_to_public(v: dict) -> VideoPublic:
         likes=int(v.get("likes", 0)),
         has_thumbnail=has_thumb,
         thumbnail_updated_at=v.get("thumbnail_updated_at"),
+        duration_sec=(float(v["duration_sec"]) if v.get("duration_sec") is not None else None),
         created_at=v["created_at"],
     )
 
