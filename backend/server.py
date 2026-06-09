@@ -46,8 +46,8 @@ SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
 SENDGRID_SENDER_EMAIL = os.environ.get("SENDGRID_SENDER_EMAIL", "")
 PASSWORD_RESET_TTL_MIN = int(os.environ.get("PASSWORD_RESET_TTL_MIN", "15"))
 
-# Upload limits (cost-saving: 2-minute videos only)
-MAX_VIDEO_DURATION_SEC = int(os.environ.get("MAX_VIDEO_DURATION_SEC", "120"))
+# Upload limits (cost-saving: 10-minute videos only)
+MAX_VIDEO_DURATION_SEC = int(os.environ.get("MAX_VIDEO_DURATION_SEC", "600"))
 MAX_VIDEO_SIZE_BYTES = int(os.environ.get("MAX_VIDEO_SIZE_BYTES", str(200 * 1024 * 1024)))  # 200 MB hard cap
 
 # Contact (shown in app + legal pages — required by Apple for UGC apps)
@@ -1253,12 +1253,38 @@ async def complete_upload(video_id: str, user: dict = Depends(require_subscriber
             detail=f"File too large ({size // (1024*1024)} MB). Max {MAX_VIDEO_SIZE_BYTES // (1024*1024)} MB per upload. Try lowering resolution.",
         )
 
-    await videos_col.update_one(
-        {"_id": video_id},
-        {"$set": {"upload_complete": True, "file_size": size}},
-    )
-    v["upload_complete"] = True
-    v["file_size"] = size
+    # Server-side duration enforcement (clients can be bypassed). We probe via
+    # a presigned URL so we never have to download the whole file — ffprobe
+    # only needs the moov atom. If probing fails, we accept the upload to
+    # avoid false negatives on exotic encodes.
+    duration_sec: Optional[float] = None
+    try:
+        probe_url = s3.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": R2_BUCKET, "Key": v["r2_key"]},
+            ExpiresIn=300,
+        )
+        duration_sec = await _ffprobe_duration(probe_url)
+    except Exception as exc:
+        logger.warning("ffprobe duration check failed: %s", exc)
+
+    if duration_sec and duration_sec > MAX_VIDEO_DURATION_SEC + 1:
+        try:
+            s3.delete_object(Bucket=R2_BUCKET, Key=v["r2_key"])
+        except Exception:
+            pass
+        await videos_col.delete_one({"_id": video_id})
+        max_min = MAX_VIDEO_DURATION_SEC // 60
+        raise HTTPException(
+            status_code=413,
+            detail=f"Video is too long ({int(duration_sec)}s). Maximum is {max_min} minute(s).",
+        )
+
+    update: dict = {"upload_complete": True, "file_size": size}
+    if duration_sec:
+        update["duration_sec"] = round(duration_sec, 2)
+    await videos_col.update_one({"_id": video_id}, {"$set": update})
+    v.update(update)
     return video_to_public(v)
 
 
