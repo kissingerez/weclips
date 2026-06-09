@@ -2535,10 +2535,10 @@ async def _target_user_from_report(report: dict) -> Optional[dict]:
         return await users_col.find_one({"_id": report["target_id"]})
     if report["target_type"] == "video":
         v = await videos_col.find_one(
-            {"_id": report["target_id"]}, {"user_id": 1}
+            {"_id": report["target_id"]}, {"creator_id": 1}
         )
         if v:
-            return await users_col.find_one({"_id": v.get("user_id")})
+            return await users_col.find_one({"_id": v.get("creator_id")})
     return None
 
 
