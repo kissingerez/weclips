@@ -316,7 +316,7 @@ export default function Upload() {
                 {pickedSize ? `  ·  ${formatBytes(pickedSize)}` : ""}
               </Text>
             ) : (
-              <Text style={styles.dropSub}>Up to 180 min, max 2GB. MP4 recommended.</Text>
+              <Text style={styles.dropSub}>Up to 180 min, max 5GB. MP4 recommended.</Text>
             )}
           </Pressable>
 
