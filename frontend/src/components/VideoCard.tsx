@@ -5,7 +5,6 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { API_BASE } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
-import { alertDialog, confirmDialog } from "@/src/lib/dialogs";
 import { colors, radius, spacing, text } from "@/src/theme";
 
 const SHARE_BASE = (process.env.EXPO_PUBLIC_SHARE_BASE_URL ||
@@ -55,25 +54,7 @@ export const VideoCard: React.FC<{ video: VideoCardData; onDeleted?: (id: string
     ? `${API_BASE}/videos/${video.id}/thumbnail?v=${encodeURIComponent(bust)}`
     : null;
   const locked = !user?.is_subscribed;
-  const showFounderDelete =
-    !!user?.is_founder && video.creator_id !== user.id;
   const durationLabel = formatDuration(video.duration_sec);
-
-  const founderDelete = async () => {
-    const ok = await confirmDialog(
-      "Founder moderation",
-      `Delete "${video.title}" from WeClips?\n\nThis cannot be undone.`,
-      { confirmText: "Delete", destructive: true }
-    );
-    if (!ok) return;
-    try {
-      const { api } = await import("@/src/lib/api");
-      await api.del(`/videos/${video.id}`);
-      onDeleted && onDeleted(video.id);
-    } catch (e: any) {
-      await alertDialog("Delete failed", e?.message || "Please try again.");
-    }
-  };
 
   return (
     <Pressable
@@ -102,20 +83,6 @@ export const VideoCard: React.FC<{ video: VideoCardData; onDeleted?: (id: string
               <Text style={styles.lockChipText}>Members only</Text>
             </View>
           </View>
-        )}
-        {showFounderDelete && (
-          <Pressable
-            testID={`videocard-founder-delete-${video.id}`}
-            onPress={(e: any) => {
-              e?.stopPropagation && e.stopPropagation();
-              founderDelete();
-            }}
-            style={styles.founderChip}
-            hitSlop={8}
-          >
-            <Ionicons name="shield" size={12} color="#1A1A1A" />
-            <Text style={styles.founderChipText}>Delete</Text>
-          </Pressable>
         )}
         {durationLabel ? (
           <View style={styles.durationChip} pointerEvents="none">
@@ -155,24 +122,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
   },
   lockChipText: { color: colors.onBrand, fontSize: 11, fontWeight: "800" },
-  founderChip: {
-    position: "absolute",
-    top: spacing.sm,
-    left: spacing.sm,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#FFB300",
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: radius.pill,
-    shadowColor: "#000",
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 4,
-  },
-  founderChipText: { color: "#1A1A1A", fontSize: 11, fontWeight: "800" },
   durationChip: {
     position: "absolute",
     bottom: spacing.sm,

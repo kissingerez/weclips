@@ -374,8 +374,8 @@ export default function VideoScreen() {
                     }}
                     style={styles.founderDeleteBtn}
                   >
-                    <Ionicons name="shield" size={14} color={colors.onBrand} />
-                    <Text style={styles.founderDeleteText}>Founder · Delete</Text>
+                    <Ionicons name="trash" size={14} color={colors.onBrand} />
+                    <Text style={styles.founderDeleteText}>Delete</Text>
                   </Pressable>
                 ) : null}
               </ScrollView>

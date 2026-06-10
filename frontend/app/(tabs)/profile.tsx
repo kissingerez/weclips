@@ -93,7 +93,6 @@ export default function Profile() {
               </Text>
               {user?.is_founder ? (
                 <View style={styles.founderInlineBadge} testID="profile-founder-badge">
-                  <Ionicons name="shield-checkmark" size={12} color="#1A1A1A" />
                   <Text style={styles.founderInlineText}>Founder</Text>
                 </View>
               ) : null}
