@@ -35,7 +35,13 @@
         }
       ],
       "expo-font",
-      "expo-video"
+      "expo-video",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Select videos and images to upload."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

@@ -119,11 +119,6 @@ export default function Upload() {
 
   const pickCustomThumb = async () => {
     setErr(null);
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      setErr("Media library permission required.");
-      return;
-    }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
@@ -148,11 +143,6 @@ export default function Upload() {
 
   const pickVideo = async () => {
     setErr(null);
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      setErr("Media library permission required.");
-      return;
-    }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Videos,
       // Full 1080p capture so playback stays crisp on big phones / tablets.
