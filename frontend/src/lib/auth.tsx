@@ -30,7 +30,14 @@ type AuthCtx = {
   user: Me | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  signup: (email: string, password: string, display_name: string, username?: string) => Promise<void>;
+  signup: (
+    email: string,
+    password: string,
+    display_name: string,
+    username?: string
+  ) => Promise<{ verificationRequired: boolean }>;
+  verifyEmail: (email: string, code: string) => Promise<void>;
+  resendVerification: (email: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 };
@@ -75,9 +82,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signup = async (email: string, password: string, display_name: string, username?: string) => {
     const body: any = { email, password, display_name };
     if (username && username.trim()) body.username = username.trim();
-    const { access_token } = await api.post<{ access_token: string }>("/auth/signup", body);
+    const res = await api.post<any>("/auth/signup", body);
+    if (res?.access_token) {
+      // Backwards-compatible: if the API ever returns a token, log straight in.
+      await tokenStorage.set(res.access_token);
+      await refresh();
+      return { verificationRequired: false };
+    }
+    return { verificationRequired: true };
+  };
+
+  const verifyEmail = async (email: string, code: string) => {
+    const { access_token } = await api.post<{ access_token: string }>("/auth/verify-email", {
+      email,
+      code,
+    });
     await tokenStorage.set(access_token);
     await refresh();
+  };
+
+  const resendVerification = async (email: string) => {
+    await api.post("/auth/resend-verification", { email });
   };
 
   const logout = async () => {
@@ -86,7 +111,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <Ctx.Provider value={{ user, loading, login, signup, logout, refresh }}>
+    <Ctx.Provider
+      value={{ user, loading, login, signup, verifyEmail, resendVerification, logout, refresh }}
+    >
       {children}
     </Ctx.Provider>
   );

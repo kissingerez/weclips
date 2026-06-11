@@ -29,6 +29,10 @@ export default function Login() {
       await login(email.trim(), password);
       router.replace("/(tabs)/home");
     } catch (e: any) {
+      if (e?.status === 403 && String(e?.message).includes("EMAIL_NOT_VERIFIED")) {
+        router.push({ pathname: "/(auth)/verify", params: { email: email.trim() } });
+        return;
+      }
       setErr(e?.message ?? "Login failed");
     } finally {
       setLoading(false);

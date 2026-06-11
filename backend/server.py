@@ -3,6 +3,7 @@ import re
 import uuid
 import base64
 import hashlib
+import hmac
 import secrets
 import logging
 import asyncio
@@ -45,6 +46,10 @@ APP_PUBLIC_URL = os.environ.get("APP_PUBLIC_URL", "")
 SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
 SENDGRID_SENDER_EMAIL = os.environ.get("SENDGRID_SENDER_EMAIL", "")
 PASSWORD_RESET_TTL_MIN = int(os.environ.get("PASSWORD_RESET_TTL_MIN", "15"))
+# Email verification (6-digit OTP before login)
+EMAIL_VERIFICATION_TTL_MIN = int(os.environ.get("EMAIL_VERIFICATION_TTL_MIN", "15"))
+EMAIL_VERIFICATION_RESEND_COOLDOWN_SEC = int(os.environ.get("EMAIL_VERIFICATION_RESEND_COOLDOWN_SEC", "60"))
+EMAIL_VERIFICATION_MAX_ATTEMPTS = int(os.environ.get("EMAIL_VERIFICATION_MAX_ATTEMPTS", "5"))
 
 # Upload limits (cost-saving: 180-minute videos only)
 MAX_VIDEO_DURATION_SEC = int(os.environ.get("MAX_VIDEO_DURATION_SEC", "10800"))
@@ -86,6 +91,7 @@ videos_col = db["videos"]
 comments_col = db["comments"]
 rc_events_col = db["rc_events"]
 password_resets_col = db["password_resets"]
+email_verifications_col = db["email_verifications"]
 reports_col = db["reports"]
 blocks_col = db["blocks"]
 follows_col = db["follows"]
@@ -473,7 +479,7 @@ async def root():
     return {"app": "WeClips", "status": "ok"}
 
 
-@api.post("/auth/signup", response_model=TokenResp)
+@api.post("/auth/signup")
 async def signup(body: SignupReq):
     email = body.email.lower()
     existing = await users_col.find_one({"email": email})
@@ -506,10 +512,12 @@ async def signup(body: SignupReq):
         "subscription_expires_at": None,
         "rc_last_event": None,
         "rc_environment": None,
+        "email_verified": False,
         "created_at": now_utc(),
     }
     await users_col.insert_one(doc)
-    return TokenResp(access_token=create_access_token(user_id))
+    dev = await _create_and_send_verification(user_id, email)
+    return {"status": "verification_required", "email": email, **dev}
 
 
 # --- Username availability + search ---
@@ -776,6 +784,24 @@ async def login(body: LoginReq):
     user = await users_col.find_one({"email": email})
     if not user or not verify_password(body.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
+    # Email verification gate. Existing users (no field — grandfathered) and
+    # verified users pass. Only explicitly-unverified accounts are blocked; we
+    # auto-send a fresh code (respecting the resend cooldown) and tell the
+    # client to route to the verification screen.
+    if user.get("email_verified") is False:
+        rec = await email_verifications_col.find_one(
+            {"user_id": user["_id"]}, {"last_sent_at": 1}
+        )
+        can_send = True
+        if rec and rec.get("last_sent_at"):
+            last = rec["last_sent_at"]
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=timezone.utc)
+            if (now_utc() - last).total_seconds() < EMAIL_VERIFICATION_RESEND_COOLDOWN_SEC:
+                can_send = False
+        if can_send:
+            await _create_and_send_verification(user["_id"], email)
+        raise HTTPException(status_code=403, detail="EMAIL_NOT_VERIFIED")
     # If a previous soft-delete is past the grace period, hard-delete now and
     # treat the account as gone.
     deleted_at = user.get("deleted_at")
@@ -1000,6 +1026,146 @@ async def reset_password(body: ResetPasswordReq):
         {"$set": {"used": True, "used_at": now_utc()}},
     )
     return {"status": "ok"}
+
+
+# --- Email verification (6-digit OTP before login) ---
+class VerifyEmailReq(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=6, max_length=6)
+
+
+class ResendVerificationReq(BaseModel):
+    email: EmailStr
+
+
+def _generate_otp() -> str:
+    return f"{secrets.randbelow(1000000):06d}"
+
+
+def _send_verification_email(to_email: str, code: str) -> bool:
+    """Send the 6-digit code via SendGrid. Returns True on success."""
+    if not SENDGRID_API_KEY or not SENDGRID_SENDER_EMAIL:
+        logger.warning("SendGrid not configured — skipping verification email")
+        return False
+    try:
+        from sendgrid import SendGridAPIClient
+        from sendgrid.helpers.mail import Mail
+        html = f"""
+        <div style="font-family:-apple-system,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px;">
+          <h2 style="color:#0F172A;">Verify your WeClips email</h2>
+          <p style="color:#475569;line-height:1.5;">
+            Enter this code in the app to finish creating your account.
+            It expires in {EMAIL_VERIFICATION_TTL_MIN} minutes.
+          </p>
+          <p style="margin:24px 0;">
+            <span style="display:inline-block;background:#F1F5F9;color:#0A1929;padding:14px 24px;border-radius:8px;font-size:30px;font-weight:800;letter-spacing:8px;">
+              {code}
+            </span>
+          </p>
+          <p style="color:#64748B;font-size:13px;">
+            If you didn't create a WeClips account, you can safely ignore this email.
+          </p>
+        </div>
+        """
+        msg = Mail(
+            from_email=SENDGRID_SENDER_EMAIL,
+            to_emails=to_email,
+            subject=f"{code} is your WeClips verification code",
+            html_content=html,
+        )
+        resp = SendGridAPIClient(SENDGRID_API_KEY).send(msg)
+        return 200 <= resp.status_code < 300
+    except Exception as e:
+        logger.exception(f"SendGrid verification send failed: {e}")
+        return False
+
+
+async def _create_and_send_verification(user_id: str, email: str) -> dict:
+    """Generate a fresh OTP, persist it hashed with expiry, and email it.
+    Returns {"dev_code": ...} only when no email service is configured so the
+    flow still works in preview. Resets attempts + last_sent_at each time."""
+    code = _generate_otp()
+    now = now_utc()
+    await email_verifications_col.update_one(
+        {"user_id": user_id},
+        {
+            "$set": {
+                "user_id": user_id,
+                "email": email,
+                "code_hash": _hash_token(code),
+                "expires_at": now + timedelta(minutes=EMAIL_VERIFICATION_TTL_MIN),
+                "attempts": 0,
+                "last_sent_at": now,
+            },
+            "$setOnInsert": {"_id": str(uuid.uuid4()), "created_at": now},
+        },
+        upsert=True,
+    )
+    sent = _send_verification_email(email, code)
+    out: dict = {}
+    if not sent:
+        out["dev_code"] = code
+        logger.info(f"EMAIL VERIFICATION (dev) for {email}: {code}")
+    return out
+
+
+@api.post("/auth/verify-email", response_model=TokenResp)
+async def verify_email(body: VerifyEmailReq):
+    email = body.email.lower()
+    user = await users_col.find_one({"email": email}, {"_id": 1, "email_verified": 1})
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid email or code")
+    # Idempotent: already-verified accounts just get a token.
+    if user.get("email_verified"):
+        return TokenResp(access_token=create_access_token(user["_id"]))
+
+    record = await email_verifications_col.find_one({"user_id": user["_id"]})
+    if not record:
+        raise HTTPException(status_code=400, detail="No code found. Request a new one.")
+    expires_at = record.get("expires_at")
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if not expires_at or expires_at < now_utc():
+        raise HTTPException(status_code=400, detail="This code has expired. Request a new one.")
+    if record.get("attempts", 0) >= EMAIL_VERIFICATION_MAX_ATTEMPTS:
+        raise HTTPException(status_code=429, detail="Too many attempts. Request a new code.")
+    if not hmac.compare_digest(record.get("code_hash", ""), _hash_token(body.code.strip())):
+        await email_verifications_col.update_one(
+            {"_id": record["_id"]}, {"$inc": {"attempts": 1}}
+        )
+        raise HTTPException(status_code=400, detail="Incorrect code. Please try again.")
+
+    await users_col.update_one({"_id": user["_id"]}, {"$set": {"email_verified": True}})
+    await email_verifications_col.delete_one({"_id": record["_id"]})
+    return TokenResp(access_token=create_access_token(user["_id"]))
+
+
+@api.post("/auth/resend-verification")
+async def resend_verification(body: ResendVerificationReq):
+    email = body.email.lower()
+    user = await users_col.find_one(
+        {"email": email}, {"_id": 1, "email": 1, "email_verified": 1}
+    )
+    resp: dict = {"status": "ok"}
+    # Never leak which emails exist / are already verified.
+    if not user or user.get("email_verified"):
+        return resp
+    record = await email_verifications_col.find_one(
+        {"user_id": user["_id"]}, {"last_sent_at": 1}
+    )
+    if record and record.get("last_sent_at"):
+        last = record["last_sent_at"]
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        wait = EMAIL_VERIFICATION_RESEND_COOLDOWN_SEC - (now_utc() - last).total_seconds()
+        if wait > 0:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Please wait {int(wait) + 1}s before requesting another code.",
+            )
+    dev = await _create_and_send_verification(user["_id"], email)
+    resp.update(dev)
+    return resp
 
 
 # --- Routes: Subscription (RevenueCat-backed) ---
@@ -3169,6 +3335,17 @@ async def startup():
                 pass
     except Exception as e:
         logger.warning("Username backfill failed: %s", e)
+
+    # Grandfather existing users: mark any account missing email_verified as
+    # verified so this change never locks out pre-existing users (incl. the
+    # App Review demo + founder accounts). New signups are created as False.
+    try:
+        await users_col.update_many(
+            {"email_verified": {"$exists": False}},
+            {"$set": {"email_verified": True}},
+        )
+    except Exception as e:
+        logger.warning("email_verified backfill failed: %s", e)
 
     # Backfill thumbnail_updated_at for videos that already have a thumbnail
     # but no timestamp (so VideoCard's ?v= cache-bust works for them too).

@@ -34,8 +34,12 @@ export default function Signup() {
     }
     setLoading(true);
     try {
-      await signup(email.trim(), password, name.trim(), u || undefined);
-      router.replace("/(tabs)/home");
+      const res = await signup(email.trim(), password, name.trim(), u || undefined);
+      if (res.verificationRequired) {
+        router.replace({ pathname: "/(auth)/verify", params: { email: email.trim() } });
+      } else {
+        router.replace("/(tabs)/home");
+      }
     } catch (e: any) {
       setErr(e?.message ?? "Signup failed");
     } finally {

@@ -49,7 +49,20 @@ def _signup(email_prefix: str, display: str) -> dict:
         timeout=30,
     )
     assert r.status_code == 200, f"signup failed: {r.status_code} {r.text}"
-    tok = r.json()["access_token"]
+    # Email verification is now required before login. Mark the test user
+    # verified directly in Mongo, then log in to obtain a token.
+    _c = MongoClient(MONGO_URL)
+    _c[DB_NAME]["users"].update_one(
+        {"email": email.lower()}, {"$set": {"email_verified": True}}
+    )
+    _c.close()
+    lr = requests.post(
+        f"{API}/auth/login",
+        json={"email": email, "password": "Password123!"},
+        timeout=30,
+    )
+    assert lr.status_code == 200, f"login failed: {lr.status_code} {lr.text}"
+    tok = lr.json()["access_token"]
     me = requests.get(f"{API}/auth/me", headers={"Authorization": f"Bearer {tok}"}).json()
     return {
         "id": me["id"],
