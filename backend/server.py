@@ -1,4 +1,5 @@
 import os
+import math
 import re
 import uuid
 import base64
@@ -53,7 +54,10 @@ EMAIL_VERIFICATION_MAX_ATTEMPTS = int(os.environ.get("EMAIL_VERIFICATION_MAX_ATT
 
 # Upload limits (cost-saving: 180-minute videos only)
 MAX_VIDEO_DURATION_SEC = int(os.environ.get("MAX_VIDEO_DURATION_SEC", "10800"))
-MAX_VIDEO_SIZE_BYTES = int(os.environ.get("MAX_VIDEO_SIZE_BYTES", str(5 * 1024 * 1024 * 1024)))  # 5 GB hard cap
+MAX_VIDEO_SIZE_BYTES = int(os.environ.get("MAX_VIDEO_SIZE_BYTES", str(25 * 1024 * 1024 * 1024)))  # 25 GB hard cap
+# Multipart upload part size (R2 caps a single PUT at 5 GiB, so files larger
+# than ~4 GiB are uploaded in chunks of this size).
+R2_MULTIPART_PART_SIZE = int(os.environ.get("R2_MULTIPART_PART_SIZE", str(128 * 1024 * 1024)))  # 128 MiB
 
 # Contact (shown in app + legal pages — required by Apple for UGC apps)
 SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "support@weclips.app")
@@ -1389,6 +1393,226 @@ async def create_upload_url(body: UploadUrlReq, user: dict = Depends(require_sub
         headers={"Content-Type": body.mime_type or "video/mp4"},
         expires_in=R2_PRESIGN_UPLOAD_TTL,
     )
+
+
+# --- Multipart upload (for large files; R2 caps a single PUT at 5 GiB) ---
+class MultipartCreateReq(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=2000)
+    mime_type: str = Field(default="video/mp4")
+    no_ai_confirmed: bool
+    total_size: int = Field(gt=0)
+
+
+class MultipartPart(BaseModel):
+    part_number: int
+    url: str
+
+
+class MultipartCreateResp(BaseModel):
+    video_id: str
+    upload_id: str
+    object_key: str
+    part_size: int
+    parts: List[MultipartPart]
+    expires_in: int
+
+
+class MultipartCompleteReq(BaseModel):
+    upload_id: str
+    client_duration_sec: Optional[float] = None
+
+
+@api.post("/videos/multipart/create", response_model=MultipartCreateResp)
+async def create_multipart_upload(
+    body: MultipartCreateReq, user: dict = Depends(require_subscriber)
+):
+    if not body.no_ai_confirmed:
+        raise HTTPException(status_code=400, detail="You must confirm the WeClips content policy")
+    if s3 is None:
+        raise HTTPException(status_code=500, detail="Cloud storage not configured")
+    if body.total_size > MAX_VIDEO_SIZE_BYTES:
+        max_gb = MAX_VIDEO_SIZE_BYTES // (1024 * 1024 * 1024)
+        raise HTTPException(
+            status_code=413, detail=f"File too large. Max {max_gb} GB per upload."
+        )
+
+    video_id = str(uuid.uuid4())
+    object_key = _r2_key_for(video_id, body.mime_type)
+    content_type = body.mime_type or "video/mp4"
+
+    try:
+        mp = s3.create_multipart_upload(
+            Bucket=R2_BUCKET, Key=object_key, ContentType=content_type
+        )
+        upload_id = mp["UploadId"]
+    except Exception as e:
+        logger.exception("R2 create_multipart_upload failed")
+        raise HTTPException(status_code=500, detail=f"Storage error: {e}")
+
+    part_size = R2_MULTIPART_PART_SIZE
+    part_count = max(1, math.ceil(body.total_size / part_size))
+    parts: List[MultipartPart] = []
+    try:
+        for n in range(1, part_count + 1):
+            purl = s3.generate_presigned_url(
+                ClientMethod="upload_part",
+                Params={
+                    "Bucket": R2_BUCKET,
+                    "Key": object_key,
+                    "UploadId": upload_id,
+                    "PartNumber": n,
+                },
+                ExpiresIn=R2_PRESIGN_UPLOAD_TTL,
+            )
+            parts.append(MultipartPart(part_number=n, url=purl))
+    except Exception as e:
+        logger.exception("R2 presign upload_part failed")
+        try:
+            s3.abort_multipart_upload(Bucket=R2_BUCKET, Key=object_key, UploadId=upload_id)
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=f"Storage error: {e}")
+
+    await videos_col.insert_one(
+        {
+            "_id": video_id,
+            "title": body.title.strip(),
+            "description": body.description.strip(),
+            "mime_type": content_type,
+            "storage": "r2",
+            "r2_key": object_key,
+            "r2_upload_id": upload_id,
+            "multipart": True,
+            "file_size": 0,
+            "upload_complete": False,
+            "creator_id": user["_id"],
+            "creator_name": user["display_name"],
+            "creator_username": user.get("username"),
+            "views": 0,
+            "likes": 0,
+            "liked_by": [],
+            "created_at": now_utc(),
+        }
+    )
+    return MultipartCreateResp(
+        video_id=video_id,
+        upload_id=upload_id,
+        object_key=object_key,
+        part_size=part_size,
+        parts=parts,
+        expires_in=R2_PRESIGN_UPLOAD_TTL,
+    )
+
+
+@api.post("/videos/{video_id}/multipart/complete", response_model=VideoPublic)
+async def complete_multipart_upload(
+    video_id: str, body: MultipartCompleteReq, user: dict = Depends(require_subscriber)
+):
+    v = await videos_col.find_one({"_id": video_id})
+    if not v or v.get("creator_id") != user["_id"]:
+        raise HTTPException(status_code=404, detail="Video not found")
+    if v.get("upload_complete"):
+        return video_to_public(v)
+    if s3 is None or not v.get("r2_key") or not v.get("r2_upload_id"):
+        raise HTTPException(status_code=400, detail="Not a multipart upload")
+    upload_id = body.upload_id or v["r2_upload_id"]
+
+    # Gather uploaded parts server-side via ListParts. This avoids requiring the
+    # client to read each part's ETag (which would need R2 CORS to expose it).
+    parts: list = []
+    marker = 0
+    try:
+        while True:
+            resp = s3.list_parts(
+                Bucket=R2_BUCKET, Key=v["r2_key"], UploadId=upload_id, PartNumberMarker=marker
+            )
+            for p in resp.get("Parts", []):
+                parts.append({"ETag": p["ETag"], "PartNumber": p["PartNumber"]})
+            if resp.get("IsTruncated"):
+                marker = resp.get("NextPartNumberMarker", 0)
+            else:
+                break
+    except Exception:
+        logger.exception("R2 list_parts failed")
+        raise HTTPException(status_code=400, detail="Could not verify uploaded parts. Please retry.")
+
+    if not parts:
+        raise HTTPException(status_code=400, detail="No uploaded parts found. Please retry the upload.")
+    parts.sort(key=lambda p: p["PartNumber"])
+
+    try:
+        s3.complete_multipart_upload(
+            Bucket=R2_BUCKET,
+            Key=v["r2_key"],
+            UploadId=upload_id,
+            MultipartUpload={"Parts": parts},
+        )
+    except Exception as e:
+        logger.exception("R2 complete_multipart_upload failed")
+        raise HTTPException(status_code=400, detail=f"Could not finalize upload: {e}")
+
+    # Verify the final object + size
+    try:
+        head = s3.head_object(Bucket=R2_BUCKET, Key=v["r2_key"])
+    except Exception:
+        raise HTTPException(status_code=400, detail="Upload not found in storage. Please retry.")
+    size = int(head.get("ContentLength", 0))
+    if size <= 0:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+    if size > MAX_VIDEO_SIZE_BYTES:
+        try:
+            s3.delete_object(Bucket=R2_BUCKET, Key=v["r2_key"])
+        except Exception:
+            pass
+        await videos_col.delete_one({"_id": video_id})
+        max_gb = MAX_VIDEO_SIZE_BYTES // (1024 * 1024 * 1024)
+        raise HTTPException(status_code=413, detail=f"File too large. Max {max_gb} GB per upload.")
+
+    duration_sec: Optional[float] = None
+    try:
+        probe_url = s3.generate_presigned_url(
+            "get_object", Params={"Bucket": R2_BUCKET, "Key": v["r2_key"]}, ExpiresIn=300
+        )
+        duration_sec = await _ffprobe_duration(probe_url)
+    except Exception as exc:
+        logger.warning("ffprobe duration check failed: %s", exc)
+    if (not duration_sec) and body.client_duration_sec and body.client_duration_sec > 0:
+        duration_sec = float(body.client_duration_sec)
+    if duration_sec and duration_sec > MAX_VIDEO_DURATION_SEC + 1:
+        try:
+            s3.delete_object(Bucket=R2_BUCKET, Key=v["r2_key"])
+        except Exception:
+            pass
+        await videos_col.delete_one({"_id": video_id})
+        max_min = MAX_VIDEO_DURATION_SEC // 60
+        raise HTTPException(
+            status_code=413,
+            detail=f"Video is too long ({int(duration_sec)}s). Maximum is {max_min} minute(s).",
+        )
+
+    update: dict = {"upload_complete": True, "file_size": size}
+    if duration_sec:
+        update["duration_sec"] = round(duration_sec, 2)
+    await videos_col.update_one({"_id": video_id}, {"$set": update})
+    v.update(update)
+    return video_to_public(v)
+
+
+@api.post("/videos/{video_id}/multipart/abort")
+async def abort_multipart_upload(video_id: str, user: dict = Depends(require_subscriber)):
+    v = await videos_col.find_one({"_id": video_id})
+    if not v or v.get("creator_id") != user["_id"]:
+        raise HTTPException(status_code=404, detail="Video not found")
+    if s3 is not None and v.get("r2_key") and v.get("r2_upload_id"):
+        try:
+            s3.abort_multipart_upload(
+                Bucket=R2_BUCKET, Key=v["r2_key"], UploadId=v["r2_upload_id"]
+            )
+        except Exception:
+            pass
+    await videos_col.delete_one({"_id": video_id})
+    return {"status": "ok"}
 
 
 class CompleteUploadReq(BaseModel):

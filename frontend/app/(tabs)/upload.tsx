@@ -46,6 +46,9 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+// Files larger than this use chunked multipart upload (R2 single PUT caps at 5 GiB).
+const MULTIPART_THRESHOLD = 4 * 1024 * 1024 * 1024; // 4 GiB
+
 export default function Upload() {
   const { user, refresh } = useAuth();
   const router = useRouter();
@@ -64,6 +67,7 @@ export default function Upload() {
     { uri: string; base64: string; label: string }[]
   >([]);
   const [uploading, setUploading] = useState(false);
+  const [uploadPct, setUploadPct] = useState(0);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -186,6 +190,76 @@ export default function Upload() {
     generateThumbnailOptions(asset.uri, durMs);
   };
 
+  const uploadViaSinglePut = async (fileBlob: Blob): Promise<string> => {
+    const presigned = await api.post<{
+      video_id: string;
+      upload_url: string;
+      headers: Record<string, string>;
+    }>("/videos/upload-url", {
+      title: title.trim(),
+      description: desc.trim(),
+      mime_type: pickedMime,
+      no_ai_confirmed: true,
+    });
+    const putRes = await fetch(presigned.upload_url, {
+      method: "PUT",
+      headers: { ...presigned.headers },
+      body: fileBlob,
+    });
+    if (!putRes.ok) {
+      const detail = await putRes.text().catch(() => "");
+      throw new Error(`Cloud upload failed (${putRes.status}). ${detail.slice(0, 120)}`);
+    }
+    await api.post(`/videos/${presigned.video_id}/complete`, {
+      client_duration_sec: pickedDuration ?? undefined,
+    });
+    return presigned.video_id;
+  };
+
+  // Large files (> 4 GiB) can't use a single R2 PUT (5 GiB cap), so we upload
+  // them in chunks via multipart and let the backend finalize from ListParts.
+  const uploadViaMultipart = async (fileBlob: Blob): Promise<string> => {
+    const mp = await api.post<{
+      video_id: string;
+      upload_id: string;
+      part_size: number;
+      parts: { part_number: number; url: string }[];
+    }>("/videos/multipart/create", {
+      title: title.trim(),
+      description: desc.trim(),
+      mime_type: pickedMime,
+      no_ai_confirmed: true,
+      total_size: fileBlob.size,
+    });
+    try {
+      const total = mp.parts.length;
+      for (const part of mp.parts) {
+        const start = (part.part_number - 1) * mp.part_size;
+        const end = Math.min(start + mp.part_size, fileBlob.size);
+        const chunk = fileBlob.slice(start, end);
+        const res = await fetch(part.url, { method: "PUT", body: chunk });
+        if (!res.ok) {
+          const detail = await res.text().catch(() => "");
+          throw new Error(
+            `Chunk ${part.part_number}/${total} failed (${res.status}). ${detail.slice(0, 100)}`
+          );
+        }
+        setUploadPct(Math.round((part.part_number / total) * 100));
+      }
+      await api.post(`/videos/${mp.video_id}/multipart/complete`, {
+        upload_id: mp.upload_id,
+        client_duration_sec: pickedDuration ?? undefined,
+      });
+      return mp.video_id;
+    } catch (e) {
+      // Best-effort: abort the abandoned multipart upload so we don't orphan it.
+      try {
+        await api.post(`/videos/${mp.video_id}/multipart/abort`, {});
+      } catch (_) {}
+      throw e;
+    }
+  };
+
   const onUpload = async () => {
     setErr(null);
     setMsg(null);
@@ -197,53 +271,21 @@ export default function Upload() {
       return;
     }
     setUploading(true);
+    setUploadPct(0);
     try {
-      // Step 1: ask backend for a presigned PUT URL
-      const presigned = await api.post<{
-        video_id: string;
-        upload_url: string;
-        headers: Record<string, string>;
-        object_key: string;
-        expires_in: number;
-      }>("/videos/upload-url", {
-        title: title.trim(),
-        description: desc.trim(),
-        mime_type: pickedMime,
-        no_ai_confirmed: true,
-      });
+      // Read the picked file into a Blob (backed by the file), then either PUT
+      // it directly (small) or upload it in chunks (large).
+      const resp = await fetch(pickedUri);
+      const fileBlob = await resp.blob();
+      const videoId =
+        fileBlob.size > MULTIPART_THRESHOLD
+          ? await uploadViaMultipart(fileBlob)
+          : await uploadViaSinglePut(fileBlob);
 
-      // Step 2: PUT the file directly to R2 (bypasses our API)
-      const putHeaders: Record<string, string> = { ...presigned.headers };
-      let putBody: any;
-      if (Platform.OS === "web") {
-        const resp = await fetch(pickedUri);
-        putBody = await resp.blob();
-      } else {
-        // React Native: send the file as a Blob via fetch (RN supports {uri} -> Blob upload)
-        const resp = await fetch(pickedUri);
-        putBody = await resp.blob();
-      }
-      const putRes = await fetch(presigned.upload_url, {
-        method: "PUT",
-        headers: putHeaders,
-        body: putBody,
-      });
-      if (!putRes.ok) {
-        const detail = await putRes.text().catch(() => "");
-        throw new Error(`Cloud upload failed (${putRes.status}). ${detail.slice(0, 120)}`);
-      }
-
-      // Step 3: tell backend the upload is done (it HEADs the object to verify).
-      // Pass the client-measured duration so the duration chip renders even
-      // when server-side ffprobe isn't available.
-      await api.post(`/videos/${presigned.video_id}/complete`, {
-        client_duration_sec: pickedDuration ?? undefined,
-      });
-
-      // Step 4: best-effort thumbnail upload (don't fail the whole upload if it errors)
+      // Best-effort thumbnail upload (don't fail the whole upload if it errors)
       if (thumbBase64) {
         try {
-          await api.put(`/videos/${presigned.video_id}/thumbnail`, {
+          await api.put(`/videos/${videoId}/thumbnail`, {
             thumbnail_base64: thumbBase64,
           });
         } catch (_) {
@@ -272,6 +314,7 @@ export default function Upload() {
       setErr(m);
     } finally {
       setUploading(false);
+      setUploadPct(0);
     }
   };
 
@@ -314,7 +357,7 @@ export default function Upload() {
                 {pickedSize ? `  ·  ${formatBytes(pickedSize)}` : ""}
               </Text>
             ) : (
-              <Text style={styles.dropSub}>Up to 180 min, max 5GB. MP4 recommended.</Text>
+              <Text style={styles.dropSub}>Up to 180 min, max 25GB. MP4 recommended.</Text>
             )}
           </Pressable>
 
@@ -459,7 +502,11 @@ export default function Upload() {
             style={({ pressed }) => [styles.submit, (pressed || uploading) && { opacity: 0.7 }]}
           >
             {uploading ? (
-              <ActivityIndicator color={colors.onBrand} />
+              uploadPct > 0 ? (
+                <Text style={styles.submitText}>Uploading… {uploadPct}%</Text>
+              ) : (
+                <ActivityIndicator color={colors.onBrand} />
+              )
             ) : (
               <Text style={styles.submitText}>Publish</Text>
             )}
