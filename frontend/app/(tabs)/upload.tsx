@@ -56,6 +56,7 @@ export default function Upload() {
   const [pickedName, setPickedName] = useState<string>("video.mp4");
   const [pickedMime, setPickedMime] = useState<string>("video/mp4");
   const [pickedSize, setPickedSize] = useState<number | null>(null);
+  const [pickedDuration, setPickedDuration] = useState<number | null>(null);
   const [thumbUri, setThumbUri] = useState<string | null>(null);
   const [thumbBase64, setThumbBase64] = useState<string | null>(null);
   const [thumbBusy, setThumbBusy] = useState(false);
@@ -155,9 +156,10 @@ export default function Upload() {
     if (result.canceled || !result.assets?.[0]) return;
     const asset = result.assets[0];
     const dur = (asset as any).duration as number | undefined; // milliseconds (RN) or seconds (web)
+    let seconds: number | null = null;
     if (dur && dur > 0) {
       // expo-image-picker returns seconds on web, milliseconds on native — normalise to seconds
-      const seconds = dur > 1000 ? dur / 1000 : dur;
+      seconds = dur > 1000 ? dur / 1000 : dur;
       if (seconds > 10800) {
         const mins = Math.floor(seconds / 60);
         const secs = Math.round(seconds % 60);
@@ -167,6 +169,7 @@ export default function Upload() {
         return;
       }
     }
+    setPickedDuration(seconds);
     setPickedUri(asset.uri);
     const inferredName =
       (asset as any).fileName ||
@@ -230,8 +233,12 @@ export default function Upload() {
         throw new Error(`Cloud upload failed (${putRes.status}). ${detail.slice(0, 120)}`);
       }
 
-      // Step 3: tell backend the upload is done (it HEADs the object to verify)
-      await api.post(`/videos/${presigned.video_id}/complete`);
+      // Step 3: tell backend the upload is done (it HEADs the object to verify).
+      // Pass the client-measured duration so the duration chip renders even
+      // when server-side ffprobe isn't available.
+      await api.post(`/videos/${presigned.video_id}/complete`, {
+        client_duration_sec: pickedDuration ?? undefined,
+      });
 
       // Step 4: best-effort thumbnail upload (don't fail the whole upload if it errors)
       if (thumbBase64) {
@@ -250,6 +257,7 @@ export default function Upload() {
       setPickedUri(null);
       setPickedName("video.mp4");
       setPickedSize(null);
+      setPickedDuration(null);
       setThumbUri(null);
       setThumbBase64(null);
       setNoAi(false);

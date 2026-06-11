@@ -1391,8 +1391,16 @@ async def create_upload_url(body: UploadUrlReq, user: dict = Depends(require_sub
     )
 
 
+class CompleteUploadReq(BaseModel):
+    client_duration_sec: Optional[float] = None
+
+
 @api.post("/videos/{video_id}/complete", response_model=VideoPublic)
-async def complete_upload(video_id: str, user: dict = Depends(require_subscriber)):
+async def complete_upload(
+    video_id: str,
+    body: Optional[CompleteUploadReq] = None,
+    user: dict = Depends(require_subscriber),
+):
     v = await videos_col.find_one({"_id": video_id})
     if not v or v.get("creator_id") != user["_id"]:
         raise HTTPException(status_code=404, detail="Video not found")
@@ -1449,8 +1457,14 @@ async def complete_upload(video_id: str, user: dict = Depends(require_subscriber
         )
 
     update: dict = {"upload_complete": True, "file_size": size}
-    if duration_sec:
-        update["duration_sec"] = round(duration_sec, 2)
+    # Prefer the server-probed duration; fall back to the client-measured value
+    # (expo-image-picker asset duration) when ffprobe isn't available so the
+    # duration chip still renders.
+    final_dur = duration_sec
+    if (not final_dur) and body and body.client_duration_sec and body.client_duration_sec > 0:
+        final_dur = float(body.client_duration_sec)
+    if final_dur:
+        update["duration_sec"] = round(final_dur, 2)
     await videos_col.update_one({"_id": video_id}, {"$set": update})
     v.update(update)
     return video_to_public(v)
@@ -1754,6 +1768,55 @@ async def _ffprobe_duration(source: str) -> Optional[float]:
         return float(out.decode().strip()) if out else None
     except Exception:
         return None
+
+
+async def _backfill_video_durations():
+    """One-time background pass: compute duration_sec for legacy videos that
+    were uploaded before we probed it. Runs ffprobe against an R2 presigned
+    URL (or the legacy disk file / base64 blob) and patches the document so
+    VideoCard can render the duration chip on old videos too."""
+    try:
+        cursor = videos_col.find(
+            {"$or": [{"duration_sec": {"$exists": False}}, {"duration_sec": None}]},
+            {
+                "_id": 1,
+                "storage": 1,
+                "r2_key": 1,
+                "file_path": 1,
+                "content_base64": 1,
+                "mime_type": 1,
+            },
+        )
+        patched = 0
+        async for v in cursor:
+            tmp = None
+            try:
+                src = await _video_source_for_processing(v)
+                if not src and v.get("content_base64"):
+                    fd, tmp = tempfile.mkstemp(suffix=".mp4")
+                    with os.fdopen(fd, "wb") as fh:
+                        fh.write(base64.b64decode(v["content_base64"]))
+                    src = tmp
+                if not src:
+                    continue
+                dur = await _ffprobe_duration(src)
+                if dur and dur > 0:
+                    await videos_col.update_one(
+                        {"_id": v["_id"]}, {"$set": {"duration_sec": round(dur, 2)}}
+                    )
+                    patched += 1
+            except Exception:
+                continue
+            finally:
+                if tmp:
+                    try:
+                        os.unlink(tmp)
+                    except Exception:
+                        pass
+        if patched:
+            logger.info("Duration backfill: patched %d legacy video(s)", patched)
+    except Exception as e:
+        logger.warning("Duration backfill failed: %s", e)
 
 
 async def _ffmpeg_extract_frame(source: str, at_sec: float, out_path: str) -> bool:
@@ -3398,6 +3461,10 @@ async def startup():
                 )
     except Exception as e:
         logger.warning("Video creator_username backfill failed: %s", e)
+
+    # Backfill duration_sec for legacy videos (runs in the background so it
+    # never blocks startup — each video is probed via ffprobe over R2/disk).
+    asyncio.create_task(_backfill_video_durations())
 
 
 @app.on_event("shutdown")
