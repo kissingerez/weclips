@@ -73,7 +73,8 @@ export const VideoCard: React.FC<{ video: VideoCardData; onDeleted?: (id: string
           <Image source={{ uri: thumb }} style={styles.image} contentFit="cover" transition={150} />
         ) : (
           <View style={[styles.image, styles.placeholder]}>
-            <Ionicons name="play-circle" size={56} color={colors.brand} />
+            <Ionicons name="image-outline" size={42} color={colors.onSurfaceTertiary} />
+            <Text style={styles.placeholderText}>No thumbnail</Text>
           </View>
         )}
         {locked && (
@@ -106,7 +107,17 @@ const styles = StyleSheet.create({
   card: { marginBottom: spacing.xl },
   thumb: { width: "100%", aspectRatio: 16 / 9, backgroundColor: colors.surfaceSecondary },
   image: { width: "100%", height: "100%" },
-  placeholder: { alignItems: "center", justifyContent: "center" },
+  placeholder: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceSecondary,
+    gap: 6,
+  },
+  placeholderText: {
+    color: colors.onSurfaceTertiary,
+    fontSize: text.sm,
+    fontWeight: "600",
+  },
   lockOverlay: {
     position: "absolute",
     top: spacing.sm,
