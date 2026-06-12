@@ -259,7 +259,14 @@ export default function VideoScreen() {
             <View style={styles.meta}>
               <Text style={styles.title} testID="video-title">{video.title}</Text>
               <Text style={styles.sub}>
-                {video.creator_username ? `@${video.creator_username}` : video.creator_name} · {video.views} {video.views === 1 ? "view" : "views"}
+                <Text
+                  testID="video-creator-link"
+                  style={styles.creatorLink}
+                  onPress={() => video.creator_id && router.push(`/user/${video.creator_id}`)}
+                >
+                  {video.creator_username ? `@${video.creator_username}` : video.creator_name}
+                </Text>
+                {` · ${video.views} ${video.views === 1 ? "view" : "views"}`}
               </Text>
 
               {user && video.creator_id !== user.id ? (
@@ -406,7 +413,13 @@ export default function VideoScreen() {
             return (
               <View style={styles.commentItem}>
                 <View style={styles.commentHead}>
-                  <Text style={styles.commentAuthor}>{item.user_name}</Text>
+                  <Text
+                    testID={`comment-author-${item.id}`}
+                    style={styles.commentAuthor}
+                    onPress={() => item.user_id && router.push(`/user/${item.user_id}`)}
+                  >
+                    {item.user_name}
+                  </Text>
                   {canDelete && (
                     <Pressable
                       testID={`comment-delete-${item.id}`}
@@ -480,6 +493,7 @@ const styles = StyleSheet.create({
   meta: { padding: spacing.lg },
   title: { color: colors.onSurface, fontSize: text.xl, fontWeight: "800" },
   sub: { color: colors.onSurfaceSecondary, fontSize: text.sm, marginTop: 4 },
+  creatorLink: { color: colors.onSurface, fontWeight: "700" },
   actionRow: { marginTop: spacing.md, flexGrow: 0 },
   actionRowContent: { flexDirection: "row", gap: spacing.sm, paddingRight: spacing.lg },
   actionBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors.surfaceSecondary, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border },

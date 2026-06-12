@@ -96,7 +96,17 @@ export const VideoCard: React.FC<{ video: VideoCardData; onDeleted?: (id: string
           {video.title}
         </Text>
         <Text style={styles.sub}>
-          {video.creator_username ? `@${video.creator_username}` : video.creator_name} · {video.views} {video.views === 1 ? "view" : "views"}
+          <Text
+            testID={`videocard-creator-${video.id}`}
+            style={styles.creatorLink}
+            onPress={(e: any) => {
+              e?.stopPropagation?.();
+              if (video.creator_id) router.push(`/user/${video.creator_id}`);
+            }}
+          >
+            {video.creator_username ? `@${video.creator_username}` : video.creator_name}
+          </Text>
+          {` · ${video.views} ${video.views === 1 ? "view" : "views"}`}
         </Text>
       </View>
     </Pressable>
@@ -151,4 +161,5 @@ const styles = StyleSheet.create({
   meta: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },
   title: { color: colors.onSurface, fontSize: text.lg, fontWeight: "700", marginBottom: spacing.xs },
   sub: { color: colors.onSurfaceSecondary, fontSize: text.sm },
+  creatorLink: { color: colors.onSurface, fontWeight: "700" },
 });
