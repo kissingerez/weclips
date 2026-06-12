@@ -1,0 +1,227 @@
+import { useCallback, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useFocusEffect, useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { useAuth } from "@/src/lib/auth";
+import { api } from "@/src/lib/api";
+import { confirmDialog } from "@/src/lib/dialogs";
+import { colors, radius, spacing, text } from "@/src/theme";
+
+export default function Settings() {
+  const { user, logout, refresh } = useAuth();
+  const router = useRouter();
+  const [openReports, setOpenReports] = useState<number>(0);
+
+  const loadFounderSummary = useCallback(async () => {
+    try {
+      const r = await api.get<{ open: number }>("/admin/reports/summary");
+      setOpenReports(r.open || 0);
+    } catch {
+      setOpenReports(0);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (user?.is_founder) loadFounderSummary();
+    }, [loadFounderSummary, user?.is_founder])
+  );
+
+  const legalItems = [
+    { key: "blocked", label: "Blocked accounts", route: "/blocked" },
+    { key: "guidelines", label: "Community Guidelines" },
+    { key: "privacy", label: "Privacy Policy" },
+    { key: "terms", label: "Terms of Service" },
+    { key: "about", label: "About & Contact" },
+  ];
+
+  return (
+    <SafeAreaView style={styles.root} edges={["top"]}>
+      <View style={styles.topBar}>
+        <Pressable
+          testID="settings-back"
+          onPress={() => router.back()}
+          hitSlop={10}
+          style={styles.backBtn}
+        >
+          <Ionicons name="chevron-back" size={24} color={colors.onSurface} />
+        </Pressable>
+        <Text style={styles.topTitle}>Settings</Text>
+        <View style={{ width: 24 }} />
+      </View>
+
+      <ScrollView
+        testID="settings-scroll"
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator
+      >
+        {user?.deletion_pending ? (
+          <View style={styles.deletionBanner} testID="settings-deletion-banner">
+            <Ionicons name="warning" size={18} color={colors.error} />
+            <Text style={styles.deletionText}>
+              Account scheduled for deletion
+              {user.deletion_expires_at
+                ? ` on ${new Date(user.deletion_expires_at).toLocaleDateString()}`
+                : ""}
+              .
+            </Text>
+            <Pressable
+              testID="settings-restore-account"
+              onPress={async () => {
+                try {
+                  await api.post("/auth/restore");
+                  await refresh();
+                } catch {}
+              }}
+              style={styles.restoreBtn}
+            >
+              <Text style={styles.restoreText}>Restore</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        <View style={styles.menu}>
+          {user?.is_founder ? (
+            <Pressable
+              testID="settings-founder-reports"
+              onPress={() => router.push("/admin/reports")}
+              style={[styles.row, styles.founderRow]}
+            >
+              <View style={styles.founderRowLeft}>
+                <View style={styles.founderRowIcon}>
+                  <Ionicons name="flag" size={16} color="#1A1A1A" />
+                </View>
+                <Text style={[styles.label, { fontWeight: "800" }]}>Reports</Text>
+                {openReports > 0 ? (
+                  <View style={styles.openCountPill} testID="settings-founder-reports-count">
+                    <Text style={styles.openCountText}>{openReports}</Text>
+                  </View>
+                ) : null}
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            </Pressable>
+          ) : null}
+
+          {legalItems.map((item) => (
+            <Pressable
+              key={item.key}
+              testID={`settings-${item.key}`}
+              onPress={() =>
+                (item as any).route
+                  ? router.push((item as any).route)
+                  : router.push({ pathname: "/legal", params: { section: item.key } })
+              }
+              style={styles.row}
+            >
+              <Text style={styles.label}>{item.label}</Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            </Pressable>
+          ))}
+
+          <Pressable
+            testID="settings-logout"
+            onPress={async () => {
+              await logout();
+              router.replace("/(auth)/login");
+            }}
+            style={[styles.row, styles.divTop]}
+          >
+            <Text style={[styles.label, { fontWeight: "700" }]}>Log out</Text>
+            <Ionicons name="log-out-outline" size={18} color={colors.onSurface} />
+          </Pressable>
+
+          <Pressable
+            testID="settings-delete-account"
+            onPress={async () => {
+              const ok = await confirmDialog(
+                "Delete your account?",
+                "You have 30 days to change your mind by signing back in and tapping Restore. After 30 days everything is permanently erased.",
+                { confirmText: "Delete account", destructive: true }
+              );
+              if (!ok) return;
+              try {
+                await api.del("/auth/me");
+                await refresh();
+                router.replace("/(auth)/login");
+              } catch {}
+            }}
+            style={styles.row}
+          >
+            <Text style={[styles.label, { color: colors.error, fontWeight: "700" }]}>
+              Delete account
+            </Text>
+            <Ionicons name="trash" size={18} color={colors.error} />
+          </Pressable>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.surface },
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.divider,
+  },
+  backBtn: { width: 24, alignItems: "flex-start" },
+  topTitle: { color: colors.onSurface, fontSize: text.lg, fontWeight: "800" },
+  scrollContent: { paddingBottom: spacing.xxxl },
+  menu: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: spacing.md,
+  },
+  divTop: { borderTopWidth: 1, borderTopColor: colors.border, marginTop: spacing.sm },
+  label: { color: colors.onSurface, fontSize: text.base },
+  founderRow: {
+    backgroundColor: "#FFF8E1",
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: "#FFB300",
+    marginBottom: spacing.sm,
+  },
+  founderRowLeft: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  founderRowIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: "#FFB300",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  openCountPill: {
+    backgroundColor: colors.error,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.pill,
+    minWidth: 22,
+    alignItems: "center",
+  },
+  openCountText: { color: "#fff", fontSize: 11, fontWeight: "800" },
+  deletionBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.errorBg,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  deletionText: { flex: 1, color: colors.error, fontSize: text.sm, fontWeight: "600" },
+  restoreBtn: {
+    backgroundColor: colors.brand,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.sm,
+  },
+  restoreText: { color: colors.onBrand, fontWeight: "700", fontSize: text.sm },
+});

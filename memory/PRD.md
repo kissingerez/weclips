@@ -78,3 +78,9 @@ Anyone can browse the catalog when authenticated, but **watching requires an act
 **Backlog / P2:**
 - Resumable/retry-per-chunk recovery for dropped 25GB multipart uploads.
 - Minor: extra paddingBottom on tab bar for tight safe-area on some devices (cosmetic).
+
+## Session Update — 2026-02 (Profile web parity)
+- Reworked mobile Profile tab to match weclips.app profile: larger avatar, name + @username, inline stat line **Followers · Following · Clips** (added Clips count), bio, "Edit profile" button, and renamed section "Your videos" → **Clips**. Files: `app/(tabs)/profile.tsx`.
+- Moved all account/legal items off the Profile into a NEW **Settings** screen (`app/settings.tsx`), opened via a gear icon (top-right of Profile). Settings contains: Founder Reports, Blocked accounts, Community Guidelines, Privacy, Terms, About & Contact, Log out, Delete account, deletion-restore banner. Nothing deleted — only relocated.
+- VideoCard thumbnails: rounded 14px corners + 16px inset (web parity), applied across Discover/Following/Profile.
+- Verified flows (self-test): gear→Settings, Settings→Privacy(/legal), Profile→Edit(/edit-profile), Settings→Log out(/login). All pass.
