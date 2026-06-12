@@ -60,3 +60,21 @@ Anyone can browse the catalog when authenticated, but **watching requires an act
 - Add a multipart-upload path for very large videos (>5 GB) — currently single-PUT covers up to 5 GB.
 - Add a CORS rule on the R2 bucket if web uploads from a non-preview domain need to work cross-origin.
 - Content moderation (LLM check or human review) for the Christian-friendly/no-AI/audio-policy attestations.
+
+---
+
+## Session Update — 2026-02 (Web UI Parity)
+
+**Goal:** Make the mobile app match the web version (weclips.app) without deleting any features.
+
+**Implemented & tested (8/8 backend pytest + full frontend flows, no regressions):**
+- 🔴 FIXED critical crash: Home/Discover feed rendered blank white. Root cause = `applyGlobalFont` global font monkey-patch produced a style array on host `<span>` on web → `Failed to set an indexed property [0] on CSSStyleDeclaration`. Fix: web-safe (CSS injection on web via `document.head`, native monkey-patch only on native). File: `src/lib/applyGlobalFont.ts`.
+- Added circular creator avatars to video cards (web parity), image from `GET /api/users/{id}/avatar` with initials fallback. File: `src/components/VideoCard.tsx`.
+- Bottom nav now: **Discover** (compass, was Home) · **Following** (NEW) · Upload · Search · Profile. File: `app/(tabs)/_layout.tsx`. Nothing removed.
+- NEW backend endpoint `GET /api/videos/following` → videos only from followed creators (respects blocks, requires auth). Defined before `/videos/{video_id}` for correct routing. File: `backend/server.py`.
+- NEW Following screen with empty state + "Discover creators" CTA. File: `app/(tabs)/following.tsx`.
+- Test file: `backend/tests/test_following_feed.py`.
+
+**Backlog / P2:**
+- Resumable/retry-per-chunk recovery for dropped 25GB multipart uploads.
+- Minor: extra paddingBottom on tab bar for tight safe-area on some devices (cosmetic).
