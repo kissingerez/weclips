@@ -47,13 +47,7 @@ export const text = {
   xxl: 24,
 };
 
-// Brand wordmark font — Comic Sans family
-import { Platform } from "react-native";
-
+// Brand wordmark font — Comic Neue (matches the web "brand-mark" Comic Sans look)
 export const brandFont = {
-  fontFamily: Platform.select({
-    ios: "Chalkboard SE",
-    android: "casual",
-    default: '"Comic Sans MS", "Comic Sans", "Chalkboard SE", cursive',
-  }),
+  fontFamily: "ComicNeue-Bold",
 };

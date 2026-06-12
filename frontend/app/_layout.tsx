@@ -4,10 +4,13 @@ import { useEffect } from "react";
 import { StatusBar } from "expo-status-bar";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
+import { useAppFonts } from "@/src/hooks/use-app-fonts";
+import { applyGlobalFont } from "@/src/lib/applyGlobalFont";
 import { AuthProvider, useAuth } from "@/src/lib/auth";
 import { useRevenueCatConfig } from "@/src/lib/useRevenueCat";
 
 SplashScreen.preventAutoHideAsync();
+applyGlobalFont();
 
 function AuthGate() {
   const { user, loading } = useAuth();
@@ -34,7 +37,10 @@ function AuthGate() {
 }
 
 export default function RootLayout() {
-  const [loaded, error] = useIconFonts();
+  const [iconsLoaded, iconErr] = useIconFonts();
+  const [appFontsLoaded, appFontErr] = useAppFonts();
+  const loaded = iconsLoaded && appFontsLoaded;
+  const error = iconErr || appFontErr;
 
   useEffect(() => {
     if (loaded || error) {
