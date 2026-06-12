@@ -264,10 +264,16 @@ export default function VideoScreen() {
                   style={styles.creatorLink}
                   onPress={() => video.creator_id && router.push(`/user/${video.creator_id}`)}
                 >
-                  {video.creator_username
-                    ? `${video.creator_name} · @${video.creator_username}`
-                    : video.creator_name}
+                  {video.creator_name}
                 </Text>
+                {video.creator_username ? (
+                  <Text
+                    style={styles.creatorHandle}
+                    onPress={() => video.creator_id && router.push(`/user/${video.creator_id}`)}
+                  >
+                    {` · @${video.creator_username}`}
+                  </Text>
+                ) : null}
                 {` · ${video.views} ${video.views === 1 ? "view" : "views"}`}
               </Text>
 
@@ -496,6 +502,7 @@ const styles = StyleSheet.create({
   title: { color: colors.onSurface, fontSize: text.xl, fontWeight: "800" },
   sub: { color: colors.onSurfaceSecondary, fontSize: text.sm, marginTop: 4 },
   creatorLink: { color: colors.brand, fontWeight: "700" },
+  creatorHandle: { color: colors.onSurfaceSecondary, fontWeight: "600" },
   actionRow: { marginTop: spacing.md, flexGrow: 0 },
   actionRowContent: { flexDirection: "row", gap: spacing.sm, paddingRight: spacing.lg },
   actionBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors.surfaceSecondary, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border },

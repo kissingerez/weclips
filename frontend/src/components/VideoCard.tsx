@@ -124,10 +124,19 @@ export const VideoCard: React.FC<{ video: VideoCardData; onDeleted?: (id: string
               if (video.creator_id) router.push(`/user/${video.creator_id}`);
             }}
           >
-            {video.creator_username
-              ? `${video.creator_name} · @${video.creator_username}`
-              : video.creator_name}
+            {video.creator_name}
           </Text>
+          {video.creator_username ? (
+            <Text
+              style={styles.creatorHandle}
+              onPress={(e: any) => {
+                e?.stopPropagation?.();
+                if (video.creator_id) router.push(`/user/${video.creator_id}`);
+              }}
+            >
+              {` · @${video.creator_username}`}
+            </Text>
+          ) : null}
         </Text>
         <Text style={styles.stats}>
           {`${video.views} ${video.views === 1 ? "view" : "views"} · ${timeAgoShort(video.created_at)}`}
@@ -186,5 +195,6 @@ const styles = StyleSheet.create({
   title: { color: colors.onSurface, fontSize: text.lg, fontWeight: "700", marginBottom: spacing.xs },
   sub: { color: colors.onSurfaceSecondary, fontSize: text.sm },
   creatorLink: { color: colors.brand, fontWeight: "700" },
+  creatorHandle: { color: colors.onSurfaceSecondary, fontWeight: "600" },
   stats: { color: colors.onSurfaceSecondary, fontSize: text.sm, marginTop: 2 },
 });
