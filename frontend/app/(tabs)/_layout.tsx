@@ -33,17 +33,17 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="home"
         options={{
-          title: "Home",
-          tabBarIcon: ({ color, size }) => <Ionicons name="home" size={size} color={color} />,
+          title: "Discover",
+          tabBarIcon: ({ color, size }) => <Ionicons name="compass" size={size} color={color} />,
           tabBarTestID: "tab-home",
         }}
       />
       <Tabs.Screen
-        name="search"
+        name="following"
         options={{
-          title: "Search",
-          tabBarIcon: ({ color, size }) => <Ionicons name="search" size={size} color={color} />,
-          tabBarTestID: "tab-search",
+          title: "Following",
+          tabBarIcon: ({ color, size }) => <Ionicons name="people" size={size} color={color} />,
+          tabBarTestID: "tab-following",
         }}
       />
       <Tabs.Screen
@@ -52,6 +52,14 @@ export default function TabsLayout() {
           title: "Upload",
           tabBarIcon: ({ color, size }) => <Ionicons name="add-circle" size={size + 4} color={color} />,
           tabBarTestID: "tab-upload",
+        }}
+      />
+      <Tabs.Screen
+        name="search"
+        options={{
+          title: "Search",
+          tabBarIcon: ({ color, size }) => <Ionicons name="search" size={size} color={color} />,
+          tabBarTestID: "tab-search",
         }}
       />
       <Tabs.Screen

@@ -1796,6 +1796,46 @@ async def list_videos(
     return items
 
 
+@api.get("/videos/following", response_model=List[VideoPublic])
+async def list_following_videos(
+    limit: int = 50,
+    user: dict = Depends(get_current_user),
+):
+    """Feed of videos only from creators the current user follows (matches web)."""
+    followee_ids: List[str] = []
+    async for f in follows_col.find({"follower_id": user["_id"]}, {"followee_id": 1}):
+        followee_ids.append(f["followee_id"])
+    if not followee_ids:
+        return []
+
+    # Exclude blocked users (either direction), same as the discover feed.
+    excluded: set = set()
+    async for b in blocks_col.find({"blocker_id": user["_id"]}, {"blocked_id": 1}):
+        excluded.add(b["blocked_id"])
+    async for b in blocks_col.find({"blocked_id": user["_id"]}, {"blocker_id": 1}):
+        excluded.add(b["blocker_id"])
+    creator_ids = [cid for cid in followee_ids if cid not in excluded]
+    if not creator_ids:
+        return []
+
+    query = {
+        "$and": [
+            {"$or": [{"upload_complete": True}, {"upload_complete": {"$exists": False}}]},
+            {"creator_id": {"$in": creator_ids}},
+        ]
+    }
+    cursor = (
+        videos_col.find(query, {"content_base64": 0, "thumbnail_base64": 0, "liked_by": 0})
+        .sort("created_at", -1)
+        .limit(min(limit, 100))
+    )
+    items = []
+    async for v in cursor:
+        items.append(video_to_public(v))
+    return items
+
+
+
 @api.get("/videos/mine", response_model=List[VideoPublic])
 async def my_videos(user: dict = Depends(get_current_user)):
     cursor = videos_col.find(

@@ -1,0 +1,59 @@
+{
+  "summary": "Full regression for the 'mobile parity with web' change. Backend: created /app/backend/tests/test_following_feed.py (pytest, 8/8 pass) covering Apple-demo login, /auth/me, GET /api/videos shape, GET /api/videos/following auth + empty-for-no-follow + limit, and the avatar endpoint used by VideoCard. Frontend (Expo web, 390x844 viewport): logged in as appletest@weclips.app, Discover feed renders 3 video cards (NOT blank — font-crash fix verified) with circular creator avatars, blue creator name, '@username', view count + time, and duration chip; tapping a creator opens /user/{creatorId}; the new Following tab loads and shows the empty state ('No clips yet' + 'Discover creators' button) and the button navigates back to /home; Search/Profile/Upload screens all load without errors; tapping a video opens /video/{id} which plays. Bottom nav shows all 5 tabs (Discover/Following/Upload/Search/Profile). Two test-threshold failures (Discover body-text length 259<300, Search body-text length 82<200) are false negatives — visual confirmation in screenshots shows both screens render correctly (Discover has 3 cards rendered as images; Search is an empty input-only state).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "Boot warning",
+        "issue": "passlib bcrypt version probe warning at backend startup ('module bcrypt has no attribute __about__'). Harmless (passlib still hashes correctly) but noisy. Pin bcrypt<4 or upgrade passlib."
+      },
+      {
+        "endpoint": "GET /api/health",
+        "issue": "No /api/health endpoint exists (404). Add a lightweight liveness probe so future tests / k8s health checks don't hit /api/auth/login."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "(tabs) bottom navigation",
+        "issues": [
+          "On the web preview the tab label text sits very close to the bottom safe-area edge — 'Discover' / 'Following' / 'Profile' labels appear partially clipped in the 390x844 screenshot. Consider increasing tabBarStyle paddingBottom or reducing the tab bar height so labels render fully above the gesture inset (see app/(tabs)/_layout.tsx lines 22-31)."
+        ]
+      }
+    ],
+    "react_native_issues": [
+      {
+        "component": "Console warnings (web)",
+        "issue": "'shadow* style props are deprecated. Use boxShadow' and 'props.pointerEvents is deprecated. Use style.pointerEvents' fire on every screen. Not blocking, but should be migrated to satisfy React Native 0.75+ deprecations."
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_following_feed.py",
+    "/app/test_reports/pytest/following_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: Add a small /api/health endpoint (returns {status:'ok'}) so external probes and the test suite can check liveness cheaply.",
+    "OPTIONAL: Pin bcrypt<4 (or upgrade passlib) in backend/requirements.txt to silence the bcrypt.__about__ AttributeError warning at startup.",
+    "OPTIONAL: Migrate remaining `shadow*` / `pointerEvents` props on web to `style.boxShadow` / `style.pointerEvents` to clear RN Web deprecation warnings.",
+    "OPTIONAL: Re-check tab-bar label spacing on 390x844 — labels look slightly clipped at the bottom; tune `paddingBottom` in app/(tabs)/_layout.tsx tabBarStyle."
+  ],
+  "critical_code_review_comments": [
+    "applyGlobalFont web-vs-native split is now correct — web injects CSS, native monkey-patches Text/TextInput.render. Good fix for the blank-screen regression.",
+    "GET /api/videos/following correctly: (a) requires auth via Depends(get_current_user), (b) short-circuits to [] when followee_ids is empty, (c) excludes blocked users in both directions, (d) caps limit at 100, (e) excludes upload_complete=False, (f) sorts created_at desc. Matches /api/videos behavior.",
+    "VideoCard CreatorAvatar correctly falls back to initials on image load error (404 from /users/{id}/avatar) — verified visually in /tmp/discover_loaded.png.",
+    "Minor: server.py is 3737 lines — well over the 700-line guideline. Consider splitting routers (auth/videos/moderation/follows) into separate modules for maintainability."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_following_feed.py (new)",
+    "/app/test_reports/pytest/following_results.xml (new)"
+  ],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% on functional checks (15/17 strict; 2 are false-negative body-length thresholds verified visually)"},
+  "seed_data_creation": "None. Used existing seeded videos and the documented Apple demo account.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Login button label is 'Sign in', testIDs: login-email-input, login-password-input, login-submit-button. Discover/Following/Search/Profile/Upload all routes under /(tabs). Apple demo (appletest@weclips.app / AppleReview2026!) is a subscriber that follows nobody, so /api/videos/following must return []. RN Web Pressable does NOT expose role='button' — always select via [data-testid=...] not get_by_role. Use mobile viewport 390x844. For empty screens like Search, body.innerText can be very short (~80 chars) and that's correct."
+}

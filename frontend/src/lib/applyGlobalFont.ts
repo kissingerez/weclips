@@ -1,9 +1,12 @@
-// Applies Satoshi globally (to match weclips.app) by patching <Text> and
-// <TextInput> render so each picks the right Satoshi face for its fontWeight.
-// Elements that already declare a fontFamily (icon fonts, the Comic Neue logo)
-// are left untouched.
+// Applies Satoshi globally (to match weclips.app).
+// On native we patch <Text>/<TextInput> render so each picks the right Satoshi
+// face for its fontWeight. On web we inject a CSS default instead — the native
+// monkey-patch produces a style array on host <span> elements which react-native-web
+// applies directly to CSSStyleDeclaration and crashes ("Failed to set an indexed
+// property [0]"), blanking the screen. Elements that already declare a fontFamily
+// (icon fonts, the Comic Neue logo) are left untouched.
 import React from "react";
-import { Text as RNText, TextInput as RNTextInput, StyleSheet } from "react-native";
+import { Platform, Text as RNText, TextInput as RNTextInput, StyleSheet } from "react-native";
 
 function weightToFamily(w?: string | number): string {
   const s = String(w ?? "400");
@@ -20,6 +23,22 @@ let patched = false;
 export function applyGlobalFont(): void {
   if (patched) return;
   patched = true;
+
+  if (Platform.OS === "web") {
+    // Web: register a CSS default. expo-font injects an @font-face per family
+    // (keyed by the name we passed to useFonts), so these names resolve once loaded.
+    if (typeof document !== "undefined") {
+      const style = document.createElement("style");
+      style.setAttribute("data-weclips-fonts", "true");
+      style.textContent = `
+        body, button, input, textarea, select {
+          font-family: 'Satoshi-Regular', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+    return;
+  }
 
   for (const Comp of [RNText, RNTextInput] as any[]) {
     const orig = Comp.render;

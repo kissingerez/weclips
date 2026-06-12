@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Pressable, Share, StyleSheet, Text, View } from "react-native";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
@@ -6,6 +6,35 @@ import { Ionicons } from "@expo/vector-icons";
 import { API_BASE } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
 import { colors, radius, spacing, text } from "@/src/theme";
+
+// Circular creator avatar matching weclips.app. Loads the user's avatar image
+// and falls back to a colored initials circle when there's no avatar (404).
+const CreatorAvatar: React.FC<{ creatorId?: string; name: string; onPress?: () => void }> = ({
+  creatorId,
+  name,
+  onPress,
+}) => {
+  const [failed, setFailed] = useState(false);
+  const initial = (name || "?").trim().charAt(0).toUpperCase() || "?";
+  const showImage = !!creatorId && !failed;
+  return (
+    <Pressable onPress={onPress} hitSlop={6} style={styles.avatarWrap}>
+      {showImage ? (
+        <Image
+          source={{ uri: `${API_BASE}/users/${creatorId}/avatar` }}
+          style={styles.avatar}
+          contentFit="cover"
+          transition={120}
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <View style={[styles.avatar, styles.avatarFallback]}>
+          <Text style={styles.avatarInitial}>{initial}</Text>
+        </View>
+      )}
+    </Pressable>
+  );
+};
 
 const SHARE_BASE = (process.env.EXPO_PUBLIC_SHARE_BASE_URL ||
   "https://ad-free-video-12.emergent.host").replace(/\/+$/, "");
@@ -112,37 +141,46 @@ export const VideoCard: React.FC<{ video: VideoCardData; onDeleted?: (id: string
         ) : null}
       </View>
       <View style={styles.meta}>
-        <Text style={styles.title} numberOfLines={2}>
-          {video.title}
-        </Text>
-        <Text style={styles.sub} numberOfLines={1}>
-          <Text
-            testID={`videocard-creator-${video.id}`}
-            style={styles.creatorLink}
-            onPress={(e: any) => {
-              e?.stopPropagation?.();
-              if (video.creator_id) router.push(`/user/${video.creator_id}`);
-            }}
-          >
-            {video.creator_name}
+        <CreatorAvatar
+          creatorId={video.creator_id}
+          name={video.creator_name}
+          onPress={() => {
+            if (video.creator_id) router.push(`/user/${video.creator_id}`);
+          }}
+        />
+        <View style={styles.metaText}>
+          <Text style={styles.title} numberOfLines={2}>
+            {video.title}
           </Text>
-          {video.creator_username ? (
+          <Text style={styles.sub} numberOfLines={1}>
             <Text
-              style={styles.creatorHandle}
+              testID={`videocard-creator-${video.id}`}
+              style={styles.creatorLink}
               onPress={(e: any) => {
                 e?.stopPropagation?.();
                 if (video.creator_id) router.push(`/user/${video.creator_id}`);
               }}
             >
-              {` · @${video.creator_username}`}
+              {video.creator_name}
             </Text>
-          ) : null}
-        </Text>
-        <View style={styles.statsRow}>
-          <Ionicons name="eye-outline" size={12} color="#94A3B8" />
-          <Text style={styles.stats}>
-            {`${video.views} ${video.views === 1 ? "view" : "views"} · ${timeAgoShort(video.created_at)}`}
+            {video.creator_username ? (
+              <Text
+                style={styles.creatorHandle}
+                onPress={(e: any) => {
+                  e?.stopPropagation?.();
+                  if (video.creator_id) router.push(`/user/${video.creator_id}`);
+                }}
+              >
+                {` · @${video.creator_username}`}
+              </Text>
+            ) : null}
           </Text>
+          <View style={styles.statsRow}>
+            <Ionicons name="eye-outline" size={12} color="#94A3B8" />
+            <Text style={styles.stats}>
+              {`${video.views} ${video.views === 1 ? "view" : "views"} · ${timeAgoShort(video.created_at)}`}
+            </Text>
+          </View>
         </View>
       </View>
     </Pressable>
@@ -194,7 +232,22 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: 0.2,
   },
-  meta: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },
+  meta: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+  },
+  metaText: { flex: 1 },
+  avatarWrap: { marginTop: 1 },
+  avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surfaceSecondary },
+  avatarFallback: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.brand,
+  },
+  avatarInitial: { color: colors.onBrand, fontSize: 16, fontWeight: "800" },
   title: { color: colors.onSurface, fontSize: text.lg, fontWeight: "700", marginBottom: spacing.xs },
   sub: { color: colors.onSurfaceSecondary, fontSize: 12 },
   creatorLink: { color: colors.brand, fontWeight: "500", fontSize: 12 },
