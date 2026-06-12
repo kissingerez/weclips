@@ -10,6 +10,26 @@ import { colors, radius, spacing, text } from "@/src/theme";
 const SHARE_BASE = (process.env.EXPO_PUBLIC_SHARE_BASE_URL ||
   "https://ad-free-video-12.emergent.host").replace(/\/+$/, "");
 
+// Compact relative time matching the web version (e.g. "22h", "2d", "3w").
+function timeAgoShort(iso?: string): string {
+  if (!iso) return "";
+  const then = new Date(iso).getTime();
+  if (isNaN(then)) return "";
+  const s = Math.max(0, Math.floor((Date.now() - then) / 1000));
+  if (s < 60) return "now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d`;
+  const w = Math.floor(d / 7);
+  if (d < 30) return `${w}w`;
+  const mo = Math.floor(d / 30);
+  if (mo < 12) return `${mo}mo`;
+  return `${Math.floor(d / 365)}y`;
+}
+
 export async function shareVideo(videoId: string, title?: string) {
   const url = `${SHARE_BASE}/v/${videoId}`;
   const message = title ? `${title} — Watch on WeClips\n${url}` : url;
@@ -95,7 +115,7 @@ export const VideoCard: React.FC<{ video: VideoCardData; onDeleted?: (id: string
         <Text style={styles.title} numberOfLines={2}>
           {video.title}
         </Text>
-        <Text style={styles.sub}>
+        <Text style={styles.sub} numberOfLines={1}>
           <Text
             testID={`videocard-creator-${video.id}`}
             style={styles.creatorLink}
@@ -108,7 +128,9 @@ export const VideoCard: React.FC<{ video: VideoCardData; onDeleted?: (id: string
               ? `${video.creator_name} · @${video.creator_username}`
               : video.creator_name}
           </Text>
-          {` · ${video.views} ${video.views === 1 ? "view" : "views"}`}
+        </Text>
+        <Text style={styles.stats}>
+          {`${video.views} ${video.views === 1 ? "view" : "views"} · ${timeAgoShort(video.created_at)}`}
         </Text>
       </View>
     </Pressable>
@@ -164,4 +186,5 @@ const styles = StyleSheet.create({
   title: { color: colors.onSurface, fontSize: text.lg, fontWeight: "700", marginBottom: spacing.xs },
   sub: { color: colors.onSurfaceSecondary, fontSize: text.sm },
   creatorLink: { color: colors.brand, fontWeight: "700" },
+  stats: { color: colors.onSurfaceSecondary, fontSize: text.sm, marginTop: 2 },
 });
