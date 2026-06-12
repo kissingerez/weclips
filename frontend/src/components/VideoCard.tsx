@@ -188,8 +188,14 @@ export const VideoCard: React.FC<{ video: VideoCardData; onDeleted?: (id: string
 };
 
 const styles = StyleSheet.create({
-  card: { marginBottom: spacing.xl },
-  thumb: { width: "100%", aspectRatio: 16 / 9, backgroundColor: colors.surfaceSecondary },
+  card: { marginBottom: spacing.xl, marginHorizontal: spacing.lg },
+  thumb: {
+    width: "100%",
+    aspectRatio: 16 / 9,
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: 14,
+    overflow: "hidden",
+  },
   image: { width: "100%", height: "100%" },
   placeholder: {
     alignItems: "center",
@@ -236,7 +242,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: spacing.md,
-    paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
   },
   metaText: { flex: 1 },

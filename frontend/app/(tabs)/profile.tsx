@@ -474,7 +474,7 @@ const styles = StyleSheet.create({
   videoActions: {
     position: "absolute",
     top: spacing.sm,
-    left: spacing.sm,
+    left: spacing.lg + spacing.sm,
     flexDirection: "row",
     gap: spacing.xs,
   },
