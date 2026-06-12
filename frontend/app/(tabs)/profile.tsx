@@ -62,6 +62,7 @@ export default function Profile() {
               hasAvatar={!!user?.has_avatar}
               size={84}
               version={user?.id}
+              square
             />
             <View style={styles.headerInfo}>
               <View style={styles.nameRow}>

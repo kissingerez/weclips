@@ -11,6 +11,7 @@ type Props = {
   // optional cache buster to force refetch after upload
   version?: number | string;
   uri?: string | null; // explicit override (used by edit preview)
+  square?: boolean; // rounded-square (matches the web profile avatar) instead of a circle
 };
 
 export const Avatar: React.FC<Props> = ({
@@ -20,8 +21,13 @@ export const Avatar: React.FC<Props> = ({
   size = 64,
   version,
   uri,
+  square = false,
 }) => {
-  const dim = { width: size, height: size, borderRadius: size / 2 } as const;
+  const dim = {
+    width: size,
+    height: size,
+    borderRadius: square ? Math.round(size * 0.22) : size / 2,
+  } as const;
   let src: string | null = null;
   if (uri) src = uri;
   else if (hasAvatar && userId) {
