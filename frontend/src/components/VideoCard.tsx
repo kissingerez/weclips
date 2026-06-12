@@ -138,9 +138,12 @@ export const VideoCard: React.FC<{ video: VideoCardData; onDeleted?: (id: string
             </Text>
           ) : null}
         </Text>
-        <Text style={styles.stats}>
-          {`${video.views} ${video.views === 1 ? "view" : "views"} · ${timeAgoShort(video.created_at)}`}
-        </Text>
+        <View style={styles.statsRow}>
+          <Ionicons name="eye-outline" size={12} color="#94A3B8" />
+          <Text style={styles.stats}>
+            {`${video.views} ${video.views === 1 ? "view" : "views"} · ${timeAgoShort(video.created_at)}`}
+          </Text>
+        </View>
       </View>
     </Pressable>
   );
@@ -193,8 +196,9 @@ const styles = StyleSheet.create({
   },
   meta: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },
   title: { color: colors.onSurface, fontSize: text.lg, fontWeight: "700", marginBottom: spacing.xs },
-  sub: { color: colors.onSurfaceSecondary, fontSize: text.sm },
-  creatorLink: { color: colors.brand, fontWeight: "700" },
-  creatorHandle: { color: colors.onSurfaceSecondary, fontWeight: "600" },
-  stats: { color: colors.onSurfaceSecondary, fontSize: text.sm, marginTop: 2 },
+  sub: { color: colors.onSurfaceSecondary, fontSize: 12 },
+  creatorLink: { color: colors.brand, fontWeight: "500", fontSize: 12 },
+  creatorHandle: { color: "#94A3B8", fontWeight: "400", fontSize: 12 },
+  statsRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 3 },
+  stats: { color: "#94A3B8", fontSize: 11, fontWeight: "400" },
 });
