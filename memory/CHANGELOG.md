@@ -29,3 +29,7 @@ Verified: backend curl, babel parse, upload screen renders for logged-in user.
 ## 2026-02 — Upload speed + ETA readout
 - Added upload speed (EMA-smoothed bytes/s) and time-remaining ("2.4 MB/s · 12s left", testID upload-progress-meta) under the straight-line upload bar.
 - xhrPut (web) and createUploadTask (native) progress callbacks now forward loaded/total bytes; handleUploadProgress samples ~0.6s apart. Stats reset on start/cancel/finish.
+
+## 2026-02 — Upload reassurance: keep-open hint + haptic + success toast
+- Added subtle "Keep the app open while your video uploads." hint under the bar while staging (testID upload-keep-open-hint).
+- On eager-upload completion: success haptic (expo-haptics, wrapped in try/catch; no-op on web) + bottom toast "Upload complete — add a title to publish" (testID upload-success-toast). Fires once per upload via completedRef, resets on cancel/publish.

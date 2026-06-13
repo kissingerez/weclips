@@ -15,11 +15,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import * as VideoThumbnails from "expo-video-thumbnails";
+import * as Haptics from "expo-haptics";
 import { createUploadTask, FileSystemUploadType } from "expo-file-system/legacy";
 import { useRouter } from "expo-router";
 import { useAuth } from "@/src/lib/auth";
 import { useUploadProgress } from "@/src/lib/uploadProgress";
 import { SignInWall } from "@/src/components/SignInWall";
+import { Toast } from "@/src/components/Toast";
 import { API_BASE, api } from "@/src/lib/api";
 import { tokenStorage } from "@/src/lib/tokenStorage";
 import { colors, radius, spacing, text } from "@/src/theme";
@@ -130,6 +132,8 @@ export default function Upload() {
   const speedRef = useRef<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const completedRef = useRef(false);
 
   // Mirror the eager upload's progress into the global store so a floating pill
   // can show it on any screen the user navigates to while it finishes.
@@ -145,6 +149,19 @@ export default function Upload() {
 
   // Clear the global pill if the Upload screen ever unmounts mid-flight.
   useEffect(() => () => setGlobalUpload(null), [setGlobalUpload]);
+
+  // Confirm a finished background upload with a success haptic + toast so
+  // creators know their (often long) clip made it before they add a title.
+  useEffect(() => {
+    if (stagedVideoId && !completedRef.current) {
+      completedRef.current = true;
+      try {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (_) {}
+      setToast("Upload complete — add a title to publish");
+    }
+    if (!stagedVideoId) completedRef.current = false;
+  }, [stagedVideoId]);
 
   const _extractFrame = async (videoUri: string, timeMs: number) => {
     try {
@@ -797,6 +814,18 @@ export default function Upload() {
                   {[formatSpeed(uploadSpeed), formatEta(uploadEta)].filter(Boolean).join("  ·  ")}
                 </Text>
               ) : null}
+              {staging ? (
+                <View style={styles.uploadBarHintRow}>
+                  <Ionicons
+                    name="information-circle-outline"
+                    size={13}
+                    color={colors.onSurfaceTertiary}
+                  />
+                  <Text style={styles.uploadBarHint} testID="upload-keep-open-hint">
+                    Keep the app open while your video uploads.
+                  </Text>
+                </View>
+              ) : null}
             </View>
           ) : stageError ? (
             <Pressable
@@ -844,6 +873,13 @@ export default function Upload() {
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
+      <Toast
+        message={toast}
+        variant="success"
+        durationMs={2600}
+        onHide={() => setToast(null)}
+        testID="upload-success-toast"
+      />
     </SafeAreaView>
   );
 }
@@ -995,6 +1031,13 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginTop: spacing.sm,
   },
+  uploadBarHintRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: spacing.sm,
+  },
+  uploadBarHint: { color: colors.onSurfaceTertiary, fontSize: 12, fontWeight: "500", flexShrink: 1 },
   error: { color: colors.error, backgroundColor: colors.errorBg, padding: spacing.md, borderRadius: radius.sm, marginBottom: spacing.sm },
   success: { color: colors.onBrand, backgroundColor: colors.success, padding: spacing.md, borderRadius: radius.sm, marginBottom: spacing.sm },
   thumbCard: {
