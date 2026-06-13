@@ -635,29 +635,42 @@ export default function Upload() {
           {err ? <Text style={styles.error} testID="upload-error">{err}</Text> : null}
           {msg ? <Text style={styles.success} testID="upload-success">{msg}</Text> : null}
 
-          {/* Eager upload progress — appears the moment a video is selected. */}
-          {staging ? (
-            <View style={styles.progressWrap} testID="upload-progress">
-              <View style={styles.progressHeaderRow}>
-                <Text style={styles.progressTitle}>
-                  {uploadPct >= 100 ? "Finishing upload…" : "Uploading your video…"}
-                </Text>
-                <Text style={styles.progressPct} testID="upload-progress-pct">{uploadPct}%</Text>
+          {/* Eager upload progress overlaid on the picked video's thumbnail. */}
+          {staging || stagedVideoId ? (
+            <View style={styles.uploadCard} testID="upload-progress">
+              {thumbUri ? (
+                <Image source={{ uri: thumbUri }} style={styles.uploadCardImg} resizeMode="cover" />
+              ) : (
+                <View style={[styles.uploadCardImg, styles.uploadCardImgFallback]}>
+                  <Ionicons name="videocam" size={36} color={colors.onSurfaceTertiary} />
+                </View>
+              )}
+              <View style={styles.uploadCardOverlay}>
+                {staging ? (
+                  <>
+                    <Text style={styles.uploadCardPct} testID="upload-progress-pct">
+                      {uploadPct}%
+                    </Text>
+                    <Text style={styles.uploadCardLabel}>
+                      {uploadPct >= 100 ? "Finishing upload…" : "Uploading your video…"}
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <Ionicons name="checkmark-circle" size={40} color="#ffffff" />
+                    <Text style={styles.uploadCardLabel}>Uploaded — ready to publish</Text>
+                  </>
+                )}
               </View>
-              <View style={styles.progressTrack}>
+              <View style={styles.uploadCardBarTrack}>
                 <View
                   testID="upload-progress-fill"
-                  style={[styles.progressFill, { width: `${Math.max(3, uploadPct)}%` }]}
+                  style={[
+                    styles.uploadCardBarFill,
+                    { width: `${staging ? Math.max(3, uploadPct) : 100}%` },
+                  ]}
                 />
               </View>
-              <Text style={styles.progressHint}>
-                You can add a title while it uploads. Keep the app open.
-              </Text>
-            </View>
-          ) : stagedVideoId ? (
-            <View style={[styles.progressWrap, styles.stagedWrap]} testID="upload-staged">
-              <Ionicons name="checkmark-circle" size={18} color={colors.brand} />
-              <Text style={styles.stagedText}>Video uploaded — add a title and publish.</Text>
             </View>
           ) : stageError ? (
             <Pressable
@@ -811,6 +824,37 @@ const styles = StyleSheet.create({
   },
   stageErrorText: { color: colors.error, fontSize: text.sm, fontWeight: "600", flex: 1 },
   indeterminate: { width: "100%" },
+  uploadCard: {
+    borderRadius: radius.md,
+    overflow: "hidden",
+    marginBottom: spacing.md,
+    backgroundColor: "#000",
+    position: "relative",
+  },
+  uploadCardImg: { width: "100%", aspectRatio: 16 / 9 },
+  uploadCardImgFallback: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceTertiary,
+  },
+  uploadCardOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.55)",
+    gap: 4,
+  },
+  uploadCardPct: { color: "#ffffff", fontSize: 40, fontWeight: "900", letterSpacing: -1 },
+  uploadCardLabel: { color: "#ffffff", fontSize: text.sm, fontWeight: "700" },
+  uploadCardBarTrack: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 6,
+    backgroundColor: "rgba(255,255,255,0.25)",
+  },
+  uploadCardBarFill: { height: "100%", backgroundColor: colors.brand },
   error: { color: colors.error, backgroundColor: colors.errorBg, padding: spacing.md, borderRadius: radius.sm, marginBottom: spacing.sm },
   success: { color: colors.onBrand, backgroundColor: colors.success, padding: spacing.md, borderRadius: radius.sm, marginBottom: spacing.sm },
   thumbCard: {
