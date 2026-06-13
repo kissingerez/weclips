@@ -25,6 +25,7 @@ type PublicUser = {
   has_avatar?: boolean;
   followers_hidden?: boolean;
   followers: number;
+  following?: number;
   is_founder?: boolean;
   // Founder-only moderation fields
   is_banned?: boolean;
@@ -76,6 +77,7 @@ export default function UserProfile() {
   }, [load]);
 
   const toggleFollow = async () => {
+    if (!me) return router.push("/(auth)/login");
     if (busy || !user) return;
     setBusy(true);
     try {
@@ -154,33 +156,63 @@ export default function UserProfile() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator
       >
-        <View style={styles.heroRow}>
-          <Avatar
-            userId={user.id}
-            displayName={user.display_name}
-            hasAvatar={!!user.has_avatar}
-            size={88}
-          />
-          <View style={{ flex: 1, marginLeft: spacing.lg }}>
-            <Text style={styles.name} testID="user-profile-name">
-              {user.display_name}
-            </Text>
-            {user.username ? (
-              <Text style={styles.handle}>@{user.username}</Text>
-            ) : null}
+        <View style={styles.header}>
+          <View style={styles.headerTop}>
+            <Avatar
+              userId={user.id}
+              displayName={user.display_name}
+              hasAvatar={!!user.has_avatar}
+              size={84}
+              square
+            />
+            <View style={styles.headerInfo}>
+              <View style={styles.nameRow}>
+                <Text style={styles.name} testID="user-profile-name" numberOfLines={1}>
+                  {user.display_name}
+                </Text>
+                {user.is_founder ? (
+                  <View style={styles.founderInlineBadge} testID="user-profile-founder-badge">
+                    <Text style={styles.founderInlineText}>Founder</Text>
+                  </View>
+                ) : null}
+              </View>
+              {user.username ? <Text style={styles.handle}>@{user.username}</Text> : null}
+            </View>
+          </View>
+
+          <View style={styles.statsRow}>
             {user.followers_hidden ? (
               <Text style={styles.followers}>Followers hidden</Text>
             ) : (
-              <Pressable
-                testID="user-profile-followers-count"
-                onPress={() => router.push(`/user/${user.id}/followers?tab=followers`)}
-                hitSlop={6}
-              >
-                <Text style={styles.followers}>
-                  {user.followers} {user.followers === 1 ? "follower" : "followers"}
-                </Text>
-              </Pressable>
+              <>
+                <Pressable
+                  testID="user-profile-followers-count"
+                  onPress={() => router.push(`/user/${user.id}/followers?tab=followers`)}
+                  style={styles.statBtn}
+                  hitSlop={6}
+                >
+                  <Text style={styles.statNum}>{user.followers}</Text>
+                  <Text style={styles.statLabel}>
+                    {user.followers === 1 ? "Follower" : "Followers"}
+                  </Text>
+                </Pressable>
+                <Text style={styles.statDot}>·</Text>
+                <Pressable
+                  testID="user-profile-following-count"
+                  onPress={() => router.push(`/user/${user.id}/followers?tab=following`)}
+                  style={styles.statBtn}
+                  hitSlop={6}
+                >
+                  <Text style={styles.statNum}>{user.following ?? 0}</Text>
+                  <Text style={styles.statLabel}>Following</Text>
+                </Pressable>
+                <Text style={styles.statDot}>·</Text>
+              </>
             )}
+            <View style={styles.statBtn}>
+              <Text style={styles.statNum}>{videos.length}</Text>
+              <Text style={styles.statLabel}>{videos.length === 1 ? "Clip" : "Clips"}</Text>
+            </View>
           </View>
         </View>
 
@@ -322,15 +354,34 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
   },
   scrollContent: { paddingBottom: spacing.xxxl },
-  heroRow: {
+  header: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.md,
+  },
+  headerTop: { flexDirection: "row", alignItems: "center", gap: spacing.lg },
+  headerInfo: { flex: 1 },
+  nameRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs, flexWrap: "wrap" },
+  name: { color: colors.onSurface, fontSize: text.xl, fontWeight: "800" },
+  handle: { color: colors.brand, fontSize: text.sm, fontWeight: "700", marginTop: 2 },
+  founderInlineBadge: {
+    backgroundColor: "#FFB300",
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
+  },
+  founderInlineText: { color: "#1A1A1A", fontSize: 11, fontWeight: "800" },
+  statsRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.lg,
+    gap: spacing.sm,
+    marginTop: spacing.lg,
   },
-  name: { color: colors.onSurface, fontSize: text.xl, fontWeight: "800" },
-  handle: { color: colors.brand, fontSize: text.base, fontWeight: "700", marginTop: 2 },
-  followers: { color: colors.onSurfaceSecondary, fontSize: text.sm, marginTop: 4 },
+  statBtn: { flexDirection: "row", alignItems: "baseline", gap: 4 },
+  statNum: { color: colors.onSurface, fontSize: text.base, fontWeight: "800" },
+  statLabel: { color: colors.onSurfaceSecondary, fontSize: text.sm, fontWeight: "600" },
+  statDot: { color: colors.onSurfaceTertiary, fontSize: text.base, fontWeight: "800" },
+  followers: { color: colors.onSurfaceSecondary, fontSize: text.sm },
   bio: {
     color: colors.onSurface,
     fontSize: text.base,

@@ -54,6 +54,9 @@ export default function VideoScreen() {
   const [likes, setLikes] = useState(0);
   const [newComment, setNewComment] = useState("");
   const [streamUrl, setStreamUrl] = useState<string>("");
+  const [previewMode, setPreviewMode] = useState(false);
+  const [previewSeconds, setPreviewSeconds] = useState(0);
+  const [previewEnded, setPreviewEnded] = useState(false);
   const [following, setFollowing] = useState(false);
   const [followerCount, setFollowerCount] = useState(0);
   const videoRef = useRef<any>(null);
@@ -64,20 +67,34 @@ export default function VideoScreen() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (!id || !user) return;
+      if (!id) return;
       try {
         const tok = await tokenStorage.get();
-        const resp = await api.get<{ stream_url: string; legacy?: boolean }>(
-          `/videos/${id}/stream-url`
-        );
-        if (cancelled) return;
-        let url = resp.stream_url;
-        if (resp.legacy && tok) {
-          const sep = url.includes("?") ? "&" : "?";
-          url = `${url}${sep}token=${encodeURIComponent(tok)}`;
-          if (url.startsWith("/")) url = `${API_BASE.replace(/\/api$/, "")}${url}`;
+        if (user?.is_subscribed) {
+          // Members stream the full video.
+          const resp = await api.get<{ stream_url: string; legacy?: boolean }>(
+            `/videos/${id}/stream-url`
+          );
+          if (cancelled) return;
+          let url = resp.stream_url;
+          if (resp.legacy && tok) {
+            const sep = url.includes("?") ? "&" : "?";
+            url = `${url}${sep}token=${encodeURIComponent(tok)}`;
+            if (url.startsWith("/")) url = `${API_BASE.replace(/\/api$/, "")}${url}`;
+          }
+          setPreviewMode(false);
+          setStreamUrl(url);
+        } else {
+          // Guests + non-subscribers get a free teaser (Apple 5.1.1).
+          const resp = await api.get<{ stream_url: string; preview_seconds: number }>(
+            `/videos/${id}/preview-url`
+          );
+          if (cancelled) return;
+          setPreviewMode(true);
+          setPreviewSeconds(resp.preview_seconds || 15);
+          setPreviewEnded(false);
+          setStreamUrl(resp.stream_url);
         }
-        setStreamUrl(url);
       } catch (e: any) {
         if (e instanceof ApiError && e.status === 402) {
           router.replace("/paywall");
@@ -93,6 +110,24 @@ export default function VideoScreen() {
     p.loop = false;
     if (streamUrl) p.play();
   });
+
+  // Enforce the free-preview cutoff for guests / non-subscribers: once playback
+  // passes `previewSeconds`, pause and reveal the paywall overlay.
+  useEffect(() => {
+    if (!previewMode || !streamUrl || previewEnded || previewSeconds <= 0) return;
+    const interval = setInterval(() => {
+      try {
+        const ct = (player as any)?.currentTime ?? 0;
+        if (ct >= previewSeconds) {
+          try {
+            player?.pause?.();
+          } catch {}
+          setPreviewEnded(true);
+        }
+      } catch {}
+    }, 400);
+    return () => clearInterval(interval);
+  }, [previewMode, streamUrl, previewEnded, previewSeconds, player]);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -230,14 +265,23 @@ export default function VideoScreen() {
             nativeControls
             contentFit="contain"
           />
-          {!user ? (
+          {previewMode && !previewEnded ? (
+            <View testID="video-preview-badge" style={styles.previewBadge} pointerEvents="none">
+              <Ionicons name="play-circle" size={14} color="#ffffff" />
+              <Text style={styles.previewBadgeText}>Free preview</Text>
+            </View>
+          ) : null}
+          {previewMode && previewEnded ? (
             <Pressable
-              testID="video-signin-overlay"
-              onPress={() => router.push("/(auth)/login")}
+              testID="video-preview-paywall"
+              onPress={() => (user ? router.push("/paywall") : router.push("/(auth)/login"))}
               style={styles.signinOverlay}
             >
               <Ionicons name="lock-closed" size={30} color="#ffffff" />
-              <Text style={styles.signinOverlayText}>Sign in to watch</Text>
+              <Text style={styles.signinOverlayText}>
+                {user ? "Become a member to keep watching" : "Sign in to keep watching"}
+              </Text>
+              <Text style={styles.previewHint}>{`Free preview ended · first ${previewSeconds}s`}</Text>
             </Pressable>
           ) : null}
           <Pressable testID="video-back-button" onPress={() => router.back()} style={styles.backIcon} hitSlop={10}>
@@ -509,6 +553,20 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   signinOverlayText: { color: "#ffffff", fontSize: 16, fontWeight: "800" },
+  previewHint: { color: "rgba(255,255,255,0.8)", fontSize: text.sm, fontWeight: "600", marginTop: 2 },
+  previewBadge: {
+    position: "absolute",
+    top: spacing.sm,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    paddingHorizontal: spacing.md,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+  },
+  previewBadgeText: { color: "#ffffff", fontSize: 12, fontWeight: "800" },
   backIcon: { position: "absolute", top: spacing.sm, left: spacing.sm, padding: spacing.sm, backgroundColor: "rgba(0,0,0,0.7)", borderRadius: radius.pill, shadowColor: "#000", shadowOpacity: 0.4, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 4 },
   fsIcon: { position: "absolute", top: spacing.sm, right: spacing.sm, padding: spacing.sm, backgroundColor: "rgba(0,0,0,0.7)", borderRadius: radius.pill, shadowColor: "#000", shadowOpacity: 0.4, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 4 },
   followBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.pill, alignSelf: "flex-start", marginTop: spacing.sm },

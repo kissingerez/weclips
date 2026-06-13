@@ -73,6 +73,8 @@ R2_SECRET_ACCESS_KEY = os.environ.get("R2_SECRET_ACCESS_KEY", "")
 R2_BUCKET = os.environ.get("R2_BUCKET", "")
 R2_PRESIGN_UPLOAD_TTL = int(os.environ.get("R2_PRESIGN_UPLOAD_TTL", "900"))
 R2_PRESIGN_STREAM_TTL = int(os.environ.get("R2_PRESIGN_STREAM_TTL", "3600"))
+# Free teaser length (seconds) guests / non-subscribers can watch before the paywall.
+VIDEO_PREVIEW_SECONDS = int(os.environ.get("VIDEO_PREVIEW_SECONDS", "15"))
 
 s3 = None
 if R2_ENDPOINT_URL and R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY and R2_BUCKET:
@@ -161,6 +163,7 @@ class UserSearchResult(BaseModel):
     has_avatar: bool = False
     followers_hidden: bool = False
     followers: int = 0
+    following: int = 0
     # Founder-only moderation fields. Populated by `get_user_public` and
     # `_users_to_results` only when the *viewer* is a founder. Kept on the
     # generic UserSearchResult so the same model serves search + profile.
@@ -638,6 +641,11 @@ async def get_user_public(target_user_id: str, user: Optional[dict] = Depends(ge
         if (is_owner or not hidden)
         else 0
     )
+    following = (
+        await follows_col.count_documents({"follower_id": target_user_id})
+        if (is_owner or not hidden)
+        else 0
+    )
     result = UserSearchResult(
         id=u["_id"],
         display_name=u.get("display_name") or "User",
@@ -646,6 +654,7 @@ async def get_user_public(target_user_id: str, user: Optional[dict] = Depends(ge
         has_avatar=bool(u.get("avatar_base64")),
         followers_hidden=hidden,
         followers=followers,
+        following=following,
         is_founder=bool(u.get("is_founder", False)),
     )
     # Only expose moderation state to other founders.
@@ -1933,6 +1942,41 @@ async def get_stream_url(video_id: str, user: dict = Depends(require_subscriber)
     # Legacy disk- or base64-backed videos: route through our own stream endpoint with token
     # (the client will append the JWT as ?token=)
     return {"stream_url": f"/api/videos/{video_id}/stream", "expires_in": 0, "legacy": True}
+
+
+@api.get("/videos/{video_id}/preview-url")
+async def get_preview_url(
+    video_id: str, user: Optional[dict] = Depends(get_current_user_optional)
+):
+    """Free teaser stream for guests and non-subscribers (Apple 5.1.1 — let
+    people sample before they buy). Subscribers should use /stream-url for the
+    full video; this endpoint always returns the first `preview_seconds` worth,
+    enforced client-side by pausing the player."""
+    v = await videos_col.find_one(
+        {"_id": video_id},
+        {"storage": 1, "r2_key": 1, "file_path": 1, "content_base64": 1, "mime_type": 1},
+    )
+    if not v:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    if v.get("storage") == "r2" and v.get("r2_key") and s3 is not None:
+        try:
+            url = s3.generate_presigned_url(
+                ClientMethod="get_object",
+                Params={"Bucket": R2_BUCKET, "Key": v["r2_key"]},
+                ExpiresIn=R2_PRESIGN_STREAM_TTL,
+            )
+            return {
+                "stream_url": url,
+                "preview_seconds": VIDEO_PREVIEW_SECONDS,
+                "expires_in": R2_PRESIGN_STREAM_TTL,
+            }
+        except Exception as e:
+            logger.exception("R2 presign GET failed")
+            raise HTTPException(status_code=500, detail=f"Storage error: {e}")
+
+    # Legacy videos can't be previewed without a token; surface as unavailable.
+    raise HTTPException(status_code=404, detail="Preview unavailable")
 
 
 @api.get("/videos/{video_id}/stream")

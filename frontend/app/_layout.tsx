@@ -7,6 +7,7 @@ import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { useAppFonts } from "@/src/hooks/use-app-fonts";
 import { applyGlobalFont } from "@/src/lib/applyGlobalFont";
 import { AuthProvider, useAuth } from "@/src/lib/auth";
+import { UploadProgressProvider, UploadPill } from "@/src/lib/uploadProgress";
 import { useRevenueCatConfig } from "@/src/lib/useRevenueCat";
 
 SplashScreen.preventAutoHideAsync();
@@ -53,16 +54,19 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
-      <StatusBar style="dark" />
-      <AuthGate />
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#FFFFFF" } }}>
-        <Stack.Screen name="(auth)" />
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="video/[id]" options={{ presentation: "card" }} />
-        <Stack.Screen name="paywall" options={{ presentation: "modal" }} />
-        <Stack.Screen name="legal" options={{ presentation: "card" }} />
-        <Stack.Screen name="banned" options={{ presentation: "card", gestureEnabled: false }} />
-      </Stack>
+      <UploadProgressProvider>
+        <StatusBar style="dark" />
+        <AuthGate />
+        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#FFFFFF" } }}>
+          <Stack.Screen name="(auth)" />
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="video/[id]" options={{ presentation: "card" }} />
+          <Stack.Screen name="paywall" options={{ presentation: "modal" }} />
+          <Stack.Screen name="legal" options={{ presentation: "card" }} />
+          <Stack.Screen name="banned" options={{ presentation: "card", gestureEnabled: false }} />
+        </Stack>
+        <UploadPill />
+      </UploadProgressProvider>
     </AuthProvider>
   );
 }

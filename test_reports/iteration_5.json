@@ -1,0 +1,41 @@
+{
+  "summary": "Tested the 4 new features end-to-end (backend + frontend on Expo web preview at https://weclips-preview.preview.emergentagent.com). Backend: 29/29 pytest cases pass in /app/backend/tests/test_preview_and_profile.py (3 new) + /app/backend/tests/test_guest_access.py (26 regression) — guest preview-url returns 200 with {stream_url, preview_seconds=15}, public /users/{id} now exposes `following` int alongside `followers`, subscriber stream-url still 200, guest gated endpoints still 401. Frontend: (a) GUEST on /video/{id} — preview-url IS fetched, `video-preview-badge` ('Free preview') renders correctly, video element gets a stream URL (srcLen=402), and `video-preview-paywall` overlay component exists in DOM (verified by source @ video/[id].tsx:276); the 15s client-side cutoff is timer-driven and could not be exercised purely via Playwright because Chromium did not start playback inside the headless context (currentTime stayed at 0 even with muted+play()), but the implementation is sound — verified by reading the polling effect at video/[id].tsx:116-130 which pauses + setPreviewEnded(true) once currentTime>=previewSeconds. (b) SUBSCRIBER (appletest) on the same /video/{id} — NO preview-badge, NO preview-paywall, stream-url is requested, video src loaded — correct. (c) Public creator profile /user/f4a60da3...0887 — square 84px avatar, name 'Nixon', founder badge ('Founder'), @kissingerez handle, and the stat line '2 Followers · 2 Following · 3 Clips' all render — all 4 requested testIDs (user-profile-name, user-profile-followers-count, user-profile-following-count, user-profile-founder-badge) present and populated. (d) Upload screen renders without errors as a subscriber; upload-pick-video-button, upload-title-input, upload-description-input, upload-submit-button all exist; upload-cancel-button source exists at upload.tsx:734 inside the conditional `progressActive && <View testID='upload-progress'>` block so it only mounts when an upload is mid-flight (correct — see also the global UploadPill which is also conditional). (e) UploadPill global floating pill (rendered in _layout.tsx) correctly absent on /home, /search, /following, /profile when no upload is active. RCA + tester fix: The first frontend run showed a STALE bundle — the page was still rendering the old `video-signin-overlay` testID and the old 'Sign in to watch' copy (neither of which exists in source). Restarting expo (`sudo supervisorctl restart expo`) forced a fresh Metro bundle, after which all new testIDs (video-preview-badge, video-preview-paywall) and the preview-url network call appeared exactly as the source code prescribes. Main agent should be aware: Metro/CI mode caches aggressively — after merging frontend changes, the expo service must be restarted for the web preview to serve the new bundle.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_preview_and_profile.py",
+    "/app/backend/tests/test_guest_access.py",
+    "/app/test_reports/pytest/preview_profile_results.xml"
+  ],
+  "action_items": [
+    "No code changes required — all 4 features (cancel-upload button, web-parity public profile, global UploadPill, guest 15s preview + paywall) are correctly implemented and working.",
+    "Operational note for main agent: after frontend code changes land, run `sudo supervisorctl restart expo` to force Metro to rebundle. Without a restart the preview was serving a stale bundle (old testIDs/copy) and the new testIDs did not appear. This is likely the same gotcha the next testing agent will hit.",
+    "Optional minor: in /app/frontend/app/video/[id].tsx the stream-url useEffect (lines 67-107) runs first with user=null (pre-AuthProvider hydration) for a logged-in subscriber, which causes one wasted /preview-url call before the second run fires /stream-url. State is overwritten correctly so behavior is fine, but you can gate with `if (user === undefined) return;` to skip the pre-hydration run. Not a blocker."
+  ],
+  "critical_code_review_comments": [
+    "video/[id].tsx correctly branches on `user?.is_subscribed` — subscribers get /stream-url, everyone else (guests + non-subscribers) gets /preview-url with the 15s teaser. The previewMode/previewEnded state machine is clean; the polling interval at line 118-128 (400ms tick) is reasonable and the cleanup is correct (clearInterval in the deps-effect's return).",
+    "video/[id].tsx:277 — paywall onPress routes guests to /(auth)/login and logged-in non-subscribers to /paywall. Good UX split.",
+    "user/[id].tsx:206 — renders `user.following ?? 0` defensively (in case backend forgets the field on an older user). Matches the new backend behavior.",
+    "uploadProgress.tsx:43-45 — the floating pill returns null when status is null AND when pathname includes 'upload'. Good — avoids double-rendering on the upload tab itself. testID 'upload-floating-pill' present.",
+    "upload.tsx:699-741 — the eager progress card (testID upload-progress) wraps the cancel button (testID upload-cancel-button). Cancel handler calls AbortController on the active fetch and resets selection. The pattern looks correct; could not exercise via Playwright file picker on web but the source is sound.",
+    "Backend regression: all 4 previously-public read endpoints still 200 for guests, all 6 previously-gated endpoints still 401 for guests, subscriber regression still 200 — full 29/29 pass."
+  ],
+  "updated_files": [
+    "/app/test_reports/iteration_5.json (new)",
+    "/app/test_reports/pytest/preview_profile_results.xml (new)"
+  ],
+  "success_rate": {"backend": "100% (29/29: 3 new preview/profile + 26 guest_access regression)", "frontend": "100% on the testable surface; the 15s client-side cutoff transition relies on actual video playback which Chromium-in-Playwright would not start — verified by source review and DOM presence of all required testIDs"},
+  "seed_data_creation": "None — used appletest@weclips.app subscriber and the sample IDs provided.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "If the frontend appears to be running stale code (missing new testIDs, old copy still visible), run `sudo supervisorctl restart expo` and wait ~25s for Metro to rebundle. The new preview/paywall testIDs are video-preview-badge and video-preview-paywall (the old video-signin-overlay was removed). Profile page testIDs: user-profile-name, user-profile-followers-count, user-profile-following-count, user-profile-founder-badge, user-profile-bio. Upload cancel: upload-cancel-button is inside upload-progress and only mounts during an active upload. UploadPill: upload-floating-pill is in _layout.tsx and only mounts when uploadProgress context status is non-null.",
+  "rca_of_issue": "Initial stale-bundle observation: Metro was serving an older compiled bundle containing the removed `video-signin-overlay` testID and 'Sign in to watch' copy (neither present in source). Reproduction: load /video/{id} as guest before restarting expo. Mitigation: `sudo supervisorctl restart expo` (rebundles from current source). After restart all new testIDs and the preview-url request appeared as expected. Not a code bug — purely a CI-mode Metro caching artifact."
+}

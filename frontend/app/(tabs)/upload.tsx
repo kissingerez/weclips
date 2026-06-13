@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -18,6 +18,7 @@ import * as VideoThumbnails from "expo-video-thumbnails";
 import { createUploadTask, FileSystemUploadType } from "expo-file-system/legacy";
 import { useRouter } from "expo-router";
 import { useAuth } from "@/src/lib/auth";
+import { useUploadProgress } from "@/src/lib/uploadProgress";
 import { SignInWall } from "@/src/components/SignInWall";
 import { API_BASE, api } from "@/src/lib/api";
 import { tokenStorage } from "@/src/lib/tokenStorage";
@@ -86,6 +87,7 @@ function xhrPut(
 export default function Upload() {
   const { user, loading: authLoading, refresh } = useAuth();
   const router = useRouter();
+  const { setStatus: setGlobalUpload } = useUploadProgress();
   const [title, setTitle] = useState("");
   const [desc, setDesc] = useState("");
   const [noAi, setNoAi] = useState(false);
@@ -109,6 +111,21 @@ export default function Upload() {
   const [uploadPct, setUploadPct] = useState(0);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+
+  // Mirror the eager upload's progress into the global store so a floating pill
+  // can show it on any screen the user navigates to while it finishes.
+  useEffect(() => {
+    if (staging) {
+      setGlobalUpload({ staging: true, pct: uploadPct, staged: false });
+    } else if (stagedVideoId) {
+      setGlobalUpload({ staging: false, pct: 100, staged: true });
+    } else {
+      setGlobalUpload(null);
+    }
+  }, [staging, uploadPct, stagedVideoId, setGlobalUpload]);
+
+  // Clear the global pill if the Upload screen ever unmounts mid-flight.
+  useEffect(() => () => setGlobalUpload(null), [setGlobalUpload]);
 
   const _extractFrame = async (videoUri: string, timeMs: number) => {
     try {
@@ -249,7 +266,9 @@ export default function Upload() {
     if (Platform.OS === "web") {
       const resp = await fetch(fileUri);
       const blob = await resp.blob();
-      await xhrPut(uploadUrl, headers, blob, onPct);
+      await xhrPut(uploadUrl, headers, blob, onPct, (xhr) => {
+        uploadCtrlRef.current = { cancel: () => xhr.abort() };
+      });
     } else {
       const task = createUploadTask(
         uploadUrl,
@@ -265,13 +284,22 @@ export default function Upload() {
           }
         }
       );
+      uploadCtrlRef.current = {
+        cancel: () => {
+          try {
+            task.cancelAsync();
+          } catch (_) {}
+        },
+      };
       const res = await task.uploadAsync();
+      if (cancelledRef.current) throw new Error("__CANCELLED__");
       if (!res || res.status < 200 || res.status >= 300) {
         throw new Error(
           `Cloud upload failed (${res?.status ?? "network"}). ${(res?.body || "").slice(0, 120)}`
         );
       }
     }
+    uploadCtrlRef.current = null;
   };
 
   // Eager upload: the moment a video is picked we stage it to storage (no title
@@ -281,6 +309,7 @@ export default function Upload() {
     setStagedVideoId(null);
     setStaging(true);
     setUploadPct(0);
+    cancelledRef.current = false;
     try {
       const presigned = await api.post<{
         video_id: string;
@@ -295,6 +324,7 @@ export default function Upload() {
       await streamPut(fileUri, presigned.upload_url, presigned.headers, setUploadPct);
       setStagedVideoId(presigned.video_id);
     } catch (e: any) {
+      if (cancelledRef.current) return; // user cancelled — state already reset
       const m = e?.message ?? "Upload failed";
       if (typeof m === "string" && m.includes("(402)")) {
         setStageError("Membership required to upload.");
@@ -302,8 +332,32 @@ export default function Upload() {
         setStageError(typeof m === "string" ? m : "Upload failed. Tap to retry.");
       }
     } finally {
-      setStaging(false);
+      if (!cancelledRef.current) setStaging(false);
     }
+  };
+
+  // Abort an in-flight eager upload and clear the staged selection so the user
+  // can pick a different video.
+  const cancelUpload = () => {
+    cancelledRef.current = true;
+    try {
+      uploadCtrlRef.current?.cancel();
+    } catch (_) {}
+    uploadCtrlRef.current = null;
+    setStaging(false);
+    setStagedVideoId(null);
+    setStageError(null);
+    setUploadPct(0);
+    setPickedUri(null);
+    setPickedName("video.mp4");
+    setPickedMime("video/mp4");
+    setPickedSize(null);
+    setPickedDuration(null);
+    setThumbUri(null);
+    setThumbBase64(null);
+    setThumbOptions([]);
+    setErr(null);
+    setMsg(null);
   };
 
   // Large files (> 4 GiB) can't use a single R2 PUT (5 GiB cap), so we upload
@@ -676,6 +730,14 @@ export default function Upload() {
                   ]}
                 />
               </View>
+              <Pressable
+                testID="upload-cancel-button"
+                onPress={cancelUpload}
+                hitSlop={8}
+                style={({ pressed }) => [styles.uploadCardCancel, pressed && { opacity: 0.7 }]}
+              >
+                <Ionicons name="close" size={18} color="#ffffff" />
+              </Pressable>
             </View>
           ) : stageError ? (
             <Pressable
@@ -860,6 +922,17 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.25)",
   },
   uploadCardBarFill: { height: "100%", backgroundColor: colors.brand },
+  uploadCardCancel: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.55)",
+  },
   error: { color: colors.error, backgroundColor: colors.errorBg, padding: spacing.md, borderRadius: radius.sm, marginBottom: spacing.sm },
   success: { color: colors.onBrand, backgroundColor: colors.success, padding: spacing.md, borderRadius: radius.sm, marginBottom: spacing.sm },
   thumbCard: {
