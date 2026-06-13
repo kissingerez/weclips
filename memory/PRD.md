@@ -84,3 +84,10 @@ Anyone can browse the catalog when authenticated, but **watching requires an act
 - Moved all account/legal items off the Profile into a NEW **Settings** screen (`app/settings.tsx`), opened via a gear icon (top-right of Profile). Settings contains: Founder Reports, Blocked accounts, Community Guidelines, Privacy, Terms, About & Contact, Log out, Delete account, deletion-restore banner. Nothing deleted — only relocated.
 - VideoCard thumbnails: rounded 14px corners + 16px inset (web parity), applied across Discover/Following/Profile.
 - Verified flows (self-test): gear→Settings, Settings→Privacy(/legal), Profile→Edit(/edit-profile), Settings→Log out(/login). All pass.
+
+## Session Update — 2026-02 (Auth hardening / reset-link domain / login 520)
+- **Reset-link domain:** Password-reset (and OTP) emails built `reset_url` from `APP_PUBLIC_URL`, which was the OLD domain `https://ad-free-video-12.emergent.host`. Updated `backend/.env` → `https://weclips.app` and code default fallback (server.py L46) → `https://weclips.app`. Reset links now: `https://weclips.app/reset?token=...`.
+- **Login Cloudflare 520 root cause:** the login/signup/forgot handlers called the SYNC SendGrid SDK (`SendGridAPIClient.send()`) inline inside async handlers, blocking the asyncio event loop; under slow/unreachable SendGrid this stalls ALL requests → Cloudflare 520/524. Added `_send_email_nonblocking()` (asyncio.to_thread + 15s timeout) and routed verification + reset emails through it.
+- **Defensive login:** `user["password_hash"]` → `user.get("password_hash") or ""` so a doc missing the field returns 401 instead of an unhandled 500.
+- Verified: JWT_SECRET_KEY/Mongo OK in preview (no startup crash, feeds 200). Tests: `backend/tests/test_auth_hardening.py` (5/5 pass) + curl (login 200, wrong-pw 401, forgot 200).
+- ⚠️ ACTION REQUIRED: Production deployment uses its OWN env vars — the live `APP_PUBLIC_URL` must be set to `https://weclips.app` in the deployment (or redeploy) for live reset emails to change.

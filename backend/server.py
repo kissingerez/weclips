@@ -43,7 +43,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", 
 RC_WEBHOOK_SECRET = os.environ.get("REVENUECAT_WEBHOOK_SECRET", "")
 RC_REST_API_KEY = os.environ.get("REVENUECAT_REST_API_KEY", "")
 RC_ENTITLEMENT = os.environ.get("REVENUECAT_ENTITLEMENT_ID", "premium")
-APP_PUBLIC_URL = os.environ.get("APP_PUBLIC_URL", "")
+APP_PUBLIC_URL = os.environ.get("APP_PUBLIC_URL", "https://weclips.app")
 SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
 SENDGRID_SENDER_EMAIL = os.environ.get("SENDGRID_SENDER_EMAIL", "")
 PASSWORD_RESET_TTL_MIN = int(os.environ.get("PASSWORD_RESET_TTL_MIN", "15"))
@@ -786,7 +786,7 @@ async def clear_my_avatar(user: dict = Depends(get_current_user)):
 async def login(body: LoginReq):
     email = body.email.lower()
     user = await users_col.find_one({"email": email})
-    if not user or not verify_password(body.password, user["password_hash"]):
+    if not user or not verify_password(body.password, user.get("password_hash") or ""):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
     # Email verification gate. Existing users (no field — grandfathered) and
     # verified users pass. Only explicitly-unverified accounts are blocked; we
@@ -965,6 +965,23 @@ def _send_password_reset_email(to_email: str, reset_url: str) -> bool:
         return False
 
 
+async def _send_email_nonblocking(fn, *args) -> bool:
+    """Run a blocking SendGrid send off the event loop with a hard timeout.
+
+    The SendGrid SDK is synchronous; calling it directly inside an async handler
+    blocks the whole asyncio event loop, which under slow/unreachable SendGrid
+    conditions stalls ALL requests and surfaces as Cloudflare 520/524 errors on
+    the origin. Offloading to a worker thread (bounded by a timeout) keeps the
+    loop responsive and guarantees the request returns promptly.
+    """
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(fn, *args), timeout=15)
+    except Exception as e:
+        logger.warning(f"Email send skipped (timeout/error): {e}")
+        return False
+
+
+
 @api.post("/auth/forgot-password")
 async def forgot_password(body: ForgotPasswordReq):
     email = body.email.lower()
@@ -1105,7 +1122,7 @@ async def _create_and_send_verification(user_id: str, email: str) -> dict:
         },
         upsert=True,
     )
-    sent = _send_verification_email(email, code)
+    sent = await _send_email_nonblocking(_send_verification_email, email, code)
     out: dict = {}
     if not sent:
         out["dev_code"] = code
