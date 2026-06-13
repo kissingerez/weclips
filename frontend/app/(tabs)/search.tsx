@@ -11,7 +11,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { VideoCard, VideoCardData } from "@/src/components/VideoCard";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { Avatar } from "@/src/components/Avatar";
 import { api } from "@/src/lib/api";
 import { colors, radius, spacing, text } from "@/src/theme";
@@ -27,15 +27,17 @@ type UserResult = {
 };
 
 export default function Search() {
+  const params = useLocalSearchParams<{ q?: string }>();
+  const initialQ = typeof params.q === "string" ? params.q : "";
   const [mode, setMode] = useState<Mode>("videos");
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(initialQ);
   const [videoResults, setVideoResults] = useState<VideoCardData[]>([]);
   const [userResults, setUserResults] = useState<UserResult[]>([]);
   const [searched, setSearched] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const onSearch = async () => {
-    const term = q.trim();
+  const onSearch = async (override?: string) => {
+    const term = (override ?? q).trim();
     if (!term) return;
     setLoading(true);
     try {
@@ -56,6 +58,16 @@ export default function Search() {
     }
   };
 
+  // Auto-run when a query is passed in from the Discover search bar.
+  useEffect(() => {
+    const term = typeof params.q === "string" ? params.q.trim() : "";
+    if (term) {
+      setQ(term);
+      onSearch(term);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.q]);
+
   const switchMode = (m: Mode) => {
     if (m === mode) return;
     setMode(m);
@@ -74,7 +86,7 @@ export default function Search() {
             style={styles.searchInput}
             value={q}
             onChangeText={setQ}
-            onSubmitEditing={onSearch}
+            onSubmitEditing={() => onSearch()}
             returnKeyType="search"
             autoCapitalize="none"
             autoCorrect={false}
@@ -85,7 +97,7 @@ export default function Search() {
             </Pressable>
           )}
         </View>
-        <Pressable onPress={onSearch} style={styles.goBtn} testID="search-submit">
+        <Pressable onPress={() => onSearch()} style={styles.goBtn} testID="search-submit">
           <Text style={styles.goText}>{loading ? "..." : "Go"}</Text>
         </Pressable>
       </View>

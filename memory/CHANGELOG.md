@@ -33,3 +33,8 @@ Verified: backend curl, babel parse, upload screen renders for logged-in user.
 ## 2026-02 — Upload reassurance: keep-open hint + haptic + success toast
 - Added subtle "Keep the app open while your video uploads." hint under the bar while staging (testID upload-keep-open-hint).
 - On eager-upload completion: success haptic (expo-haptics, wrapped in try/catch; no-op on web) + bottom toast "Upload complete — add a title to publish" (testID upload-success-toast). Fires once per upload via completedRef, resets on cancel/publish.
+
+## 2026-02 — Move search from bottom tab into Discover
+- Removed the Search tab from the bottom bar (href:null in (tabs)/_layout.tsx; route still reachable).
+- Added a search bar at the top of Discover (home.tsx), above the first video (testID home-search-input). Submitting routes to /search with the query.
+- Search screen (search.tsx) now reads a `q` param and auto-runs the search; onSearch accepts an override term.

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { FlatList, RefreshControl, StyleSheet, Text, View, ActivityIndicator, Pressable } from "react-native";
+import { FlatList, RefreshControl, StyleSheet, Text, View, ActivityIndicator, Pressable, TextInput } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -14,6 +14,12 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [unread, setUnread] = useState(0);
+  const [q, setQ] = useState("");
+
+  const submitSearch = () => {
+    const term = q.trim();
+    router.push({ pathname: "/search", params: term ? { q: term } : {} });
+  };
 
   const loadUnread = useCallback(async () => {
     try {
@@ -73,6 +79,28 @@ export default function Home() {
           ) : null}
         </Pressable>
       </View>
+      <View style={styles.searchRow} testID="home-search-row">
+        <View style={styles.searchBox}>
+          <Ionicons name="search" color={colors.onSurfaceTertiary} size={18} />
+          <TextInput
+            testID="home-search-input"
+            placeholder="Search videos, creators, @usernames..."
+            placeholderTextColor={colors.onSurfaceTertiary}
+            style={styles.searchInput}
+            value={q}
+            onChangeText={setQ}
+            onSubmitEditing={submitSearch}
+            returnKeyType="search"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          {q.length > 0 ? (
+            <Pressable onPress={() => setQ("")} hitSlop={10} testID="home-search-clear">
+              <Ionicons name="close-circle" size={18} color={colors.onSurfaceTertiary} />
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.brand} />
@@ -131,6 +159,23 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.divider,
   },
   brand: { ...brandFont, color: colors.brand, fontSize: 28, fontWeight: "900", letterSpacing: -0.5 },
+  searchRow: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
+  },
+  searchBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  searchInput: { flex: 1, color: colors.onSurface, fontSize: text.base, padding: 0 },
   badge: {
     color: colors.onSurfaceSecondary,
     fontSize: 10,
