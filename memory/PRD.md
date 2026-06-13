@@ -104,3 +104,11 @@ Anyone can browse the catalog when authenticated, but **watching requires an act
 - Fix: added `hash_password_async`/`verify_password_async` (asyncio.to_thread) and routed all 5 call sites (login, signup, change-password verify+hash, reset-password) through them. SendGrid sends already offloaded.
 - Proof: 15 concurrent bcrypt logins → 1.84s total; a concurrent /api/videos returned 200 in 0.23s DURING the burst (event loop stays free). 21/21 auth tests still pass.
 - ⚠️ DEPLOYMENT REQUIRED: All these fixes live in the preview codebase only. Production (ad-free-video-12.emergent.host behind Cloudflare) runs the older build and will keep 520ing until the user REDEPLOYS. Also set APP_PUBLIC_URL=https://weclips.app in prod env.
+
+## Session Update — 2026-02 (Apple 5.1.1: guest access to non-account features)
+- App previously force-redirected everyone to login (the rejection cause). Now guests browse freely; account features prompt sign-in.
+- Backend: 4 read endpoints switched to get_current_user_optional (guarded for user=None): GET /users/{id}, /users/{id}/videos, /users/search, /videos/{id}. Streaming/comments/likes/follows/upload stay gated (401 for guests).
+- Frontend: AuthGate no longer bounces guests to /login; index -> /home for everyone; new src/components/SignInWall.tsx shown on Upload/Following/Profile tabs for guests; video/[id] shows a 'Sign in to watch' overlay + skips stream-url for guests; comments/like/follow already gated.
+- Tester regression fix: video/[id] stream-url useEffect dep array was [id, router], missing user -> video wouldn't play right after login; fixed to [id, user, router].
+- Tests: backend 26/26 (test_guest_access.py) + frontend flows PASS. Existing auth suites still green.
+- ⚠️ DEPLOY: ship to production so the Apple reviewer sees guest access; also ensure APP_PUBLIC_URL=https://weclips.app + the earlier 520 fixes are in the same deploy.
