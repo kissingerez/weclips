@@ -112,3 +112,11 @@ Anyone can browse the catalog when authenticated, but **watching requires an act
 - Tester regression fix: video/[id] stream-url useEffect dep array was [id, router], missing user -> video wouldn't play right after login; fixed to [id, user, router].
 - Tests: backend 26/26 (test_guest_access.py) + frontend flows PASS. Existing auth suites still green.
 - ⚠️ DEPLOY: ship to production so the Apple reviewer sees guest access; also ensure APP_PUBLIC_URL=https://weclips.app + the earlier 520 fixes are in the same deploy.
+
+## Session Update — 2026-02 (Upload "network failed" + progress bar)
+- Root cause of "network failed" on a ~3-min video: upload read the ENTIRE file into JS memory via fetch(uri).blob() then PUT with fetch() — large videos (hundreds of MB / GB) blow memory and throw "Network request failed"; fetch also can't report upload progress.
+- Fix (app/(tabs)/upload.tsx): single-PUT path now STREAMS the file from disk on native via expo-file-system/legacy createUploadTask (FileSystemUploadType.BINARY_CONTENT) with a real progress callback; web uses XMLHttpRequest with upload.onprogress (xhrPut helper). Multipart/>4GiB path unchanged. Size decision now uses pickedSize (no blob read on native).
+- Added a visible progress bar UI (track + fill + %) with "Uploading your video…/Finishing up…" + "keep the app open" hint, plus a spinner+% on the Publish button.
+- Also hardened the guest-tab guards (upload/following/profile) to show a spinner during auth-loading instead of flashing the SignInWall (fixes deep-link/reload to a gated tab while logged in).
+- Verified: babel parse OK for all 3; logged-in upload form renders; guest gates render. NATIVE streaming upload + progress can only be fully verified on a real device/TestFlight build (web preview can't run the native module or pick a device video).
+- ⚠️ DEPLOY + native build required for users to get this fix.

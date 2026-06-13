@@ -12,7 +12,7 @@ import { SignInWall } from "@/src/components/SignInWall";
 import { colors, radius, spacing, text } from "@/src/theme";
 
 export default function Profile() {
-  const { user, refresh } = useAuth();
+  const { user, loading: authLoading, refresh } = useAuth();
   const router = useRouter();
   const [videos, setVideos] = useState<VideoCardData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,7 +49,11 @@ export default function Profile() {
           <Ionicons name="settings-outline" size={22} color={colors.onSurface} />
         </Pressable>
       </View>
-      {!user ? (
+      {authLoading ? (
+        <View style={styles.center}>
+          <ActivityIndicator color={colors.brand} />
+        </View>
+      ) : !user ? (
         <SignInWall
           icon="person-circle-outline"
           title="Sign in to view your profile"

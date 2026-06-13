@@ -11,7 +11,7 @@ import { colors, spacing, text, brandFont } from "@/src/theme";
 
 export default function Following() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [videos, setVideos] = useState<VideoCardData[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -51,11 +51,17 @@ export default function Following() {
         <View style={styles.header}>
           <Text style={styles.brand}>Following</Text>
         </View>
-        <SignInWall
-          icon="people-outline"
-          title="Sign in to see Following"
-          message="Follow creators and their latest clips will show up here."
-        />
+        {authLoading ? (
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+            <ActivityIndicator color={colors.brand} />
+          </View>
+        ) : (
+          <SignInWall
+            icon="people-outline"
+            title="Sign in to see Following"
+            message="Follow creators and their latest clips will show up here."
+          />
+        )}
       </SafeAreaView>
     );
   }

@@ -15,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import * as VideoThumbnails from "expo-video-thumbnails";
+import { createUploadTask, FileSystemUploadType } from "expo-file-system/legacy";
 import { useRouter } from "expo-router";
 import { useAuth } from "@/src/lib/auth";
 import { SignInWall } from "@/src/components/SignInWall";
@@ -50,8 +51,37 @@ function blobToBase64(blob: Blob): Promise<string> {
 // Files larger than this use chunked multipart upload (R2 single PUT caps at 5 GiB).
 const MULTIPART_THRESHOLD = 4 * 1024 * 1024 * 1024; // 4 GiB
 
+// PUT a blob with real upload-progress (web). fetch() can't report upload
+// progress, so we use XMLHttpRequest which exposes upload.onprogress.
+function xhrPut(
+  url: string,
+  headers: Record<string, string>,
+  body: Blob,
+  onProgress: (pct: number) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    Object.entries(headers || {}).forEach(([k, v]) => {
+      try {
+        xhr.setRequestHeader(k, v);
+      } catch (_) {}
+    });
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () =>
+      xhr.status >= 200 && xhr.status < 300
+        ? resolve()
+        : reject(new Error(`Cloud upload failed (${xhr.status}).`));
+    xhr.onerror = () => reject(new Error("Network error during upload. Please try again."));
+    xhr.ontimeout = () => reject(new Error("Upload timed out. Please try again."));
+    xhr.send(body);
+  });
+}
+
 export default function Upload() {
-  const { user, refresh } = useAuth();
+  const { user, loading: authLoading, refresh } = useAuth();
   const router = useRouter();
   const [title, setTitle] = useState("");
   const [desc, setDesc] = useState("");
@@ -191,7 +221,7 @@ export default function Upload() {
     generateThumbnailOptions(asset.uri, durMs);
   };
 
-  const uploadViaSinglePut = async (fileBlob: Blob): Promise<string> => {
+  const uploadViaSinglePut = async (): Promise<string> => {
     const presigned = await api.post<{
       video_id: string;
       upload_url: string;
@@ -202,15 +232,40 @@ export default function Upload() {
       mime_type: pickedMime,
       no_ai_confirmed: true,
     });
-    const putRes = await fetch(presigned.upload_url, {
-      method: "PUT",
-      headers: { ...presigned.headers },
-      body: fileBlob,
-    });
-    if (!putRes.ok) {
-      const detail = await putRes.text().catch(() => "");
-      throw new Error(`Cloud upload failed (${putRes.status}). ${detail.slice(0, 120)}`);
+
+    if (Platform.OS === "web") {
+      // Web has the file as a blob URL; PUT it with XHR for progress.
+      const resp = await fetch(pickedUri!);
+      const blob = await resp.blob();
+      await xhrPut(presigned.upload_url, presigned.headers, blob, setUploadPct);
+    } else {
+      // Native: stream the file straight from disk so we never load a
+      // multi-hundred-MB video into JS memory (the cause of "network failed"),
+      // and report real progress via the task callback.
+      const task = createUploadTask(
+        presigned.upload_url,
+        pickedUri!,
+        {
+          httpMethod: "PUT",
+          uploadType: FileSystemUploadType.BINARY_CONTENT,
+          headers: presigned.headers,
+        },
+        (p) => {
+          if (p.totalBytesExpectedToSend > 0) {
+            setUploadPct(
+              Math.round((p.totalBytesSent / p.totalBytesExpectedToSend) * 100)
+            );
+          }
+        }
+      );
+      const res = await task.uploadAsync();
+      if (!res || res.status < 200 || res.status >= 300) {
+        throw new Error(
+          `Cloud upload failed (${res?.status ?? "network"}). ${(res?.body || "").slice(0, 120)}`
+        );
+      }
     }
+
     await api.post(`/videos/${presigned.video_id}/complete`, {
       client_duration_sec: pickedDuration ?? undefined,
     });
@@ -274,14 +329,14 @@ export default function Upload() {
     setUploading(true);
     setUploadPct(0);
     try {
-      // Read the picked file into a Blob (backed by the file), then either PUT
-      // it directly (small) or upload it in chunks (large).
-      const resp = await fetch(pickedUri);
-      const fileBlob = await resp.blob();
+      // Decide single-PUT vs multipart by file size WITHOUT loading the file
+      // into memory. Native streams from disk; only the rare >4 GiB multipart
+      // path reads the blob (for chunk slicing).
+      const size = pickedSize ?? 0;
       const videoId =
-        fileBlob.size > MULTIPART_THRESHOLD
-          ? await uploadViaMultipart(fileBlob)
-          : await uploadViaSinglePut(fileBlob);
+        size > MULTIPART_THRESHOLD
+          ? await uploadViaMultipart(await (await fetch(pickedUri)).blob())
+          : await uploadViaSinglePut();
 
       // Best-effort thumbnail upload (don't fail the whole upload if it errors)
       if (thumbBase64) {
@@ -318,6 +373,19 @@ export default function Upload() {
       setUploadPct(0);
     }
   };
+
+  if (authLoading) {
+    return (
+      <SafeAreaView style={styles.root} edges={["top"]}>
+        <View style={styles.header}>
+          <Text style={styles.h1}>Upload</Text>
+        </View>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <ActivityIndicator color={colors.brand} />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (!user) {
     return (
@@ -447,7 +515,7 @@ export default function Upload() {
                 <View style={styles.thumbLoading}>
                   <Ionicons name="image-outline" size={28} color={colors.onSurfaceTertiary} />
                   <Text style={styles.thumbLoadingText}>
-                    Couldn't generate frames. Upload your own below.
+                    Couldn&apos;t generate frames. Upload your own below.
                   </Text>
                 </View>
               )}
@@ -500,7 +568,7 @@ export default function Upload() {
               <Text style={styles.policyRule}>• No excessive sound effects</Text>
               <Text style={styles.policyRule}>
                 • Christian-friendly or neutral content only — nothing demonic. Anime & cartoons are welcome
-                if they don't advocate anti-Christian beliefs.
+                if they don&apos;t advocate anti-Christian beliefs.
               </Text>
               <Text style={styles.policyHint}>
                 We ban overstimulating and spiritually harmful content so videos stay watchable and uplifting.
@@ -511,6 +579,26 @@ export default function Upload() {
           {err ? <Text style={styles.error} testID="upload-error">{err}</Text> : null}
           {msg ? <Text style={styles.success} testID="upload-success">{msg}</Text> : null}
 
+          {uploading ? (
+            <View style={styles.progressWrap} testID="upload-progress">
+              <View style={styles.progressHeaderRow}>
+                <Text style={styles.progressTitle}>
+                  {uploadPct >= 100 ? "Finishing up…" : "Uploading your video…"}
+                </Text>
+                <Text style={styles.progressPct} testID="upload-progress-pct">{uploadPct}%</Text>
+              </View>
+              <View style={styles.progressTrack}>
+                <View
+                  testID="upload-progress-fill"
+                  style={[styles.progressFill, { width: `${Math.max(3, uploadPct)}%` }]}
+                />
+              </View>
+              <Text style={styles.progressHint}>
+                Keep the app open — large videos can take a few minutes.
+              </Text>
+            </View>
+          ) : null}
+
           <Pressable
             testID="upload-submit-button"
             disabled={uploading}
@@ -518,11 +606,12 @@ export default function Upload() {
             style={({ pressed }) => [styles.submit, (pressed || uploading) && { opacity: 0.7 }]}
           >
             {uploading ? (
-              uploadPct > 0 ? (
-                <Text style={styles.submitText}>Uploading… {uploadPct}%</Text>
-              ) : (
+              <View style={styles.submitBusyRow}>
                 <ActivityIndicator color={colors.onBrand} />
-              )
+                <Text style={styles.submitText}>
+                  {uploadPct > 0 ? `Uploading… ${uploadPct}%` : "Preparing…"}
+                </Text>
+              </View>
             ) : (
               <Text style={styles.submitText}>Publish</Text>
             )}
@@ -600,6 +689,31 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
   submitText: { color: colors.onBrand, fontWeight: "800", fontSize: text.lg },
+  submitBusyRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  progressWrap: {
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  progressHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: spacing.sm,
+  },
+  progressTitle: { color: colors.onSurface, fontSize: text.base, fontWeight: "700" },
+  progressPct: { color: colors.brand, fontSize: text.base, fontWeight: "800" },
+  progressTrack: {
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: colors.surfaceTertiary,
+    overflow: "hidden",
+  },
+  progressFill: { height: "100%", borderRadius: 999, backgroundColor: colors.brand },
+  progressHint: { color: colors.onSurfaceSecondary, fontSize: text.xs, marginTop: spacing.sm },
   error: { color: colors.error, backgroundColor: colors.errorBg, padding: spacing.md, borderRadius: radius.sm, marginBottom: spacing.sm },
   success: { color: colors.onBrand, backgroundColor: colors.success, padding: spacing.md, borderRadius: radius.sm, marginBottom: spacing.sm },
   thumbCard: {
