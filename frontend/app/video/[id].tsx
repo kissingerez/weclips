@@ -46,7 +46,7 @@ type Comment = {
 export default function VideoScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [video, setVideo] = useState<VideoDetail | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -67,7 +67,7 @@ export default function VideoScreen() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (!id) return;
+      if (!id || authLoading) return;
       try {
         const tok = await tokenStorage.get();
         if (user?.is_subscribed) {

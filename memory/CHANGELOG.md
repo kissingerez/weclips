@@ -14,3 +14,10 @@ Implemented:
 
 Verified: backend curl, babel parse, upload screen renders for logged-in user.
 ⚠️ Eager upload + native streaming must be confirmed on a real device/TestFlight build (web preview can't run the native module or pick a gallery video). Requires a production redeploy + native build.
+
+## 2026-02 — Cancel upload, profile parity, background pill, guest preview
+- Cancel upload button (testID upload-cancel-button) wired to abort eager R2 upload (web xhr.abort / native task.cancelAsync) and clear selection.
+- Public creator profile (/user/[id]) matched to web: square avatar + "Followers · Following · Clips" stat line. Backend GET /users/{id} now returns `following` count.
+- Global background-upload pill (src/lib/uploadProgress.tsx, mounted in _layout.tsx): shows "Uploading X% / Uploaded — tap to publish" on all screens except Upload; routes back to finish publishing.
+- Guest video preview: new GET /videos/{id}/preview-url (guest-accessible) + 15s client-side cutoff with "Free preview" badge and paywall overlay; subscribers still get full /stream-url.
+- Tests: backend 29/29 (added test_preview_and_profile.py). Frontend verified (iteration_5). DEPLOY + native build needed for end users.
