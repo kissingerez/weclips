@@ -36,6 +36,20 @@ function formatBytes(n: number | null): string {
   return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
+function formatSpeed(bps: number | null): string {
+  if (!bps || bps <= 0) return "";
+  return `${formatBytes(bps)}/s`;
+}
+
+function formatEta(sec: number | null): string {
+  if (sec == null || !isFinite(sec) || sec < 0) return "";
+  const s = Math.round(sec);
+  if (s < 60) return `${s}s left`;
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}m ${r}s left`;
+}
+
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -58,7 +72,7 @@ function xhrPut(
   url: string,
   headers: Record<string, string>,
   body: Blob,
-  onProgress: (pct: number) => void,
+  onProgress: (pct: number, loaded?: number, total?: number) => void,
   onInit?: (xhr: XMLHttpRequest) => void
 ): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -70,7 +84,8 @@ function xhrPut(
       } catch (_) {}
     });
     xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+      if (e.lengthComputable)
+        onProgress(Math.round((e.loaded / e.total) * 100), e.loaded, e.total);
     };
     xhr.onload = () =>
       xhr.status >= 200 && xhr.status < 300
@@ -109,6 +124,10 @@ export default function Upload() {
   const uploadCtrlRef = useRef<{ cancel: () => void } | null>(null);
   const cancelledRef = useRef(false);
   const [uploadPct, setUploadPct] = useState(0);
+  const [uploadSpeed, setUploadSpeed] = useState<number | null>(null);
+  const [uploadEta, setUploadEta] = useState<number | null>(null);
+  const progressSampleRef = useRef<{ bytes: number; time: number } | null>(null);
+  const speedRef = useRef<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -254,6 +273,35 @@ export default function Upload() {
     }
   };
 
+  const resetUploadStats = () => {
+    progressSampleRef.current = null;
+    speedRef.current = null;
+    setUploadSpeed(null);
+    setUploadEta(null);
+  };
+
+  // Compute upload speed (EMA-smoothed) + ETA from the raw byte counts the
+  // platform progress callbacks report, so the bar can show "2.4 MB/s · 12s left".
+  const handleUploadProgress = (pct: number, loaded?: number, total?: number) => {
+    setUploadPct(pct);
+    if (loaded == null || total == null || total <= 0) return;
+    const now = Date.now();
+    const prev = progressSampleRef.current;
+    if (!prev) {
+      progressSampleRef.current = { bytes: loaded, time: now };
+      return;
+    }
+    const dt = (now - prev.time) / 1000;
+    if (dt < 0.6) return; // sample ~0.6s apart for stable readings
+    const inst = (loaded - prev.bytes) / dt; // bytes/sec
+    progressSampleRef.current = { bytes: loaded, time: now };
+    if (inst <= 0) return;
+    const smoothed = speedRef.current != null ? speedRef.current * 0.55 + inst * 0.45 : inst;
+    speedRef.current = smoothed;
+    setUploadSpeed(smoothed);
+    setUploadEta(Math.max(0, (total - loaded) / smoothed));
+  };
+
   // Stream a file to a presigned R2 URL with real progress. Native streams
   // straight from disk (never loads the video into memory — the old cause of
   // "network failed"); web PUTs the blob via XHR for progress.
@@ -261,7 +309,7 @@ export default function Upload() {
     fileUri: string,
     uploadUrl: string,
     headers: Record<string, string>,
-    onPct: (n: number) => void
+    onPct: (n: number, loaded?: number, total?: number) => void
   ): Promise<void> => {
     if (Platform.OS === "web") {
       const resp = await fetch(fileUri);
@@ -280,7 +328,11 @@ export default function Upload() {
         },
         (p) => {
           if (p.totalBytesExpectedToSend > 0) {
-            onPct(Math.round((p.totalBytesSent / p.totalBytesExpectedToSend) * 100));
+            onPct(
+              Math.round((p.totalBytesSent / p.totalBytesExpectedToSend) * 100),
+              p.totalBytesSent,
+              p.totalBytesExpectedToSend
+            );
           }
         }
       );
@@ -309,6 +361,7 @@ export default function Upload() {
     setStagedVideoId(null);
     setStaging(true);
     setUploadPct(0);
+    resetUploadStats();
     cancelledRef.current = false;
     try {
       const presigned = await api.post<{
@@ -321,7 +374,7 @@ export default function Upload() {
         mime_type: mime,
         no_ai_confirmed: false,
       });
-      await streamPut(fileUri, presigned.upload_url, presigned.headers, setUploadPct);
+      await streamPut(fileUri, presigned.upload_url, presigned.headers, handleUploadProgress);
       setStagedVideoId(presigned.video_id);
     } catch (e: any) {
       if (cancelledRef.current) return; // user cancelled — state already reset
@@ -332,7 +385,10 @@ export default function Upload() {
         setStageError(typeof m === "string" ? m : "Upload failed. Tap to retry.");
       }
     } finally {
-      if (!cancelledRef.current) setStaging(false);
+      if (!cancelledRef.current) {
+        setStaging(false);
+        resetUploadStats();
+      }
     }
   };
 
@@ -348,6 +404,7 @@ export default function Upload() {
     setStagedVideoId(null);
     setStageError(null);
     setUploadPct(0);
+    resetUploadStats();
     setPickedUri(null);
     setPickedName("video.mp4");
     setPickedMime("video/mp4");
@@ -735,6 +792,11 @@ export default function Upload() {
                   ]}
                 />
               </View>
+              {staging && uploadPct < 100 && (uploadSpeed || uploadEta != null) ? (
+                <Text style={styles.uploadBarMeta} testID="upload-progress-meta">
+                  {[formatSpeed(uploadSpeed), formatEta(uploadEta)].filter(Boolean).join("  ·  ")}
+                </Text>
+              ) : null}
             </View>
           ) : stageError ? (
             <Pressable
@@ -927,6 +989,12 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   uploadBarFill: { height: "100%", borderRadius: 999, backgroundColor: colors.brand },
+  uploadBarMeta: {
+    color: colors.onSurfaceSecondary,
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: spacing.sm,
+  },
   error: { color: colors.error, backgroundColor: colors.errorBg, padding: spacing.md, borderRadius: radius.sm, marginBottom: spacing.sm },
   success: { color: colors.onBrand, backgroundColor: colors.success, padding: spacing.md, borderRadius: radius.sm, marginBottom: spacing.sm },
   thumbCard: {

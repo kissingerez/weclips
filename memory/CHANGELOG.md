@@ -25,3 +25,7 @@ Verified: backend curl, babel parse, upload screen renders for logged-in user.
 ## 2026-02 — Straight-line upload bar + deployment fix
 - DEPLOYMENT FIX: removed .env/.env.*/*.env from /app/.gitignore so production deploy can configure R2/Mongo/JWT (root cause of uploads failing in deployment). Requires redeploy.
 - Upload progress UI: replaced thumbnail-overlay card with a clean full-width straight-line bar on the Upload page (label + % + inline cancel). Removed old uploadCard* styles.
+
+## 2026-02 — Upload speed + ETA readout
+- Added upload speed (EMA-smoothed bytes/s) and time-remaining ("2.4 MB/s · 12s left", testID upload-progress-meta) under the straight-line upload bar.
+- xhrPut (web) and createUploadTask (native) progress callbacks now forward loaded/total bytes; handleUploadProgress samples ~0.6s apart. Stats reset on start/cancel/finish.
