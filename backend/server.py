@@ -276,6 +276,18 @@ def verify_password(p: str, h: str) -> bool:
         return False
 
 
+# bcrypt hashing/verification is CPU-bound (~250ms each). Running it directly in
+# the asyncio event loop serializes all concurrent auth requests and stalls the
+# worker, which surfaces as Cloudflare 520/524 ("origin overloaded") under load.
+# Always offload to a worker thread so the event loop stays responsive.
+async def hash_password_async(p: str) -> str:
+    return await asyncio.to_thread(hash_password, p)
+
+
+async def verify_password_async(p: str, h: str) -> bool:
+    return await asyncio.to_thread(verify_password, p, h)
+
+
 def create_access_token(sub: str) -> str:
     expire = now_utc() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     return jwt.encode({"sub": sub, "exp": expire}, JWT_SECRET, algorithm=JWT_ALG)
@@ -508,7 +520,7 @@ async def signup(body: SignupReq):
     doc = {
         "_id": user_id,
         "email": email,
-        "password_hash": hash_password(body.password),
+        "password_hash": await hash_password_async(body.password),
         "display_name": body.display_name.strip(),
         "username": username,
         "is_subscribed": False,
@@ -786,7 +798,7 @@ async def clear_my_avatar(user: dict = Depends(get_current_user)):
 async def login(body: LoginReq):
     email = body.email.lower()
     user = await users_col.find_one({"email": email})
-    if not user or not verify_password(body.password, user.get("password_hash") or ""):
+    if not user or not await verify_password_async(body.password, user.get("password_hash") or ""):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
     # Email verification gate. Existing users (no field — grandfathered) and
     # verified users pass. Only explicitly-unverified accounts are blocked; we
@@ -884,9 +896,9 @@ async def update_me(body: UpdateMeReq, user: dict = Depends(get_current_user)):
             )
         # Fetch hash (we omitted it from `user` dict)
         full = await users_col.find_one({"_id": user["_id"]}, {"password_hash": 1})
-        if not full or not verify_password(body.current_password, full.get("password_hash", "")):
+        if not full or not await verify_password_async(body.current_password, full.get("password_hash", "")):
             raise HTTPException(status_code=400, detail="Current password is incorrect")
-        updates["password_hash"] = hash_password(body.new_password)
+        updates["password_hash"] = await hash_password_async(body.new_password)
 
     if not updates:
         return user_to_public(user)
@@ -1035,7 +1047,7 @@ async def reset_password(body: ResetPasswordReq):
         raise HTTPException(status_code=400, detail="This reset link has expired")
 
     user_id = record["user_id"]
-    new_hash = hash_password(body.new_password)
+    new_hash = await hash_password_async(body.new_password)
     await users_col.update_one({"_id": user_id}, {"$set": {"password_hash": new_hash}})
     await password_resets_col.update_one(
         {"_id": record["_id"]},

@@ -97,3 +97,10 @@ Anyone can browse the catalog when authenticated, but **watching requires an act
 - Follow-up fix: `forgot_password` (server.py:1012) was still calling SendGrid synchronously (my earlier parallel edits to the same file collided and dropped this one). Now routed through `_send_email_nonblocking`. Both OTP + reset email paths are non-blocking → 520 surface fully closed.
 - Known cosmetic: passlib `bcrypt.__about__` startup warning (harmless; left as-is to avoid hash-compat risk).
 - LESSON: never run two search_replace on the SAME file in parallel — apply sequentially.
+
+## Session Update — 2026-02 (520 deep fix: bcrypt off the event loop)
+- Real production user reported persistent Cloudflare 520 on web-app login. Reproduced diagnosis: production healthy for single requests, but the 520 occurs UNDER CONCURRENT LOAD.
+- Found a SECOND (primary) blocking cause beyond SendGrid: `verify_password`/`hash_password` (passlib bcrypt, ~250ms CPU each) ran SYNCHRONOUSLY in the asyncio event loop on every login/signup/password-change. Under concurrent auth load this serializes and stalls the single-event-loop worker → all requests queue → Cloudflare 520/524 ("origin overloaded"), affecting even verified users.
+- Fix: added `hash_password_async`/`verify_password_async` (asyncio.to_thread) and routed all 5 call sites (login, signup, change-password verify+hash, reset-password) through them. SendGrid sends already offloaded.
+- Proof: 15 concurrent bcrypt logins → 1.84s total; a concurrent /api/videos returned 200 in 0.23s DURING the burst (event loop stays free). 21/21 auth tests still pass.
+- ⚠️ DEPLOYMENT REQUIRED: All these fixes live in the preview codebase only. Production (ad-free-video-12.emergent.host behind Cloudflare) runs the older build and will keep 520ing until the user REDEPLOYS. Also set APP_PUBLIC_URL=https://weclips.app in prod env.
