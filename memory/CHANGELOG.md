@@ -21,3 +21,7 @@ Verified: backend curl, babel parse, upload screen renders for logged-in user.
 - Global background-upload pill (src/lib/uploadProgress.tsx, mounted in _layout.tsx): shows "Uploading X% / Uploaded — tap to publish" on all screens except Upload; routes back to finish publishing.
 - Guest video preview: new GET /videos/{id}/preview-url (guest-accessible) + 15s client-side cutoff with "Free preview" badge and paywall overlay; subscribers still get full /stream-url.
 - Tests: backend 29/29 (added test_preview_and_profile.py). Frontend verified (iteration_5). DEPLOY + native build needed for end users.
+
+## 2026-02 — Straight-line upload bar + deployment fix
+- DEPLOYMENT FIX: removed .env/.env.*/*.env from /app/.gitignore so production deploy can configure R2/Mongo/JWT (root cause of uploads failing in deployment). Requires redeploy.
+- Upload progress UI: replaced thumbnail-overlay card with a clean full-width straight-line bar on the Upload page (label + % + inline cancel). Removed old uploadCard* styles.
