@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -57,7 +57,8 @@ function xhrPut(
   url: string,
   headers: Record<string, string>,
   body: Blob,
-  onProgress: (pct: number) => void
+  onProgress: (pct: number) => void,
+  onInit?: (xhr: XMLHttpRequest) => void
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -76,6 +77,8 @@ function xhrPut(
         : reject(new Error(`Cloud upload failed (${xhr.status}).`));
     xhr.onerror = () => reject(new Error("Network error during upload. Please try again."));
     xhr.ontimeout = () => reject(new Error("Upload timed out. Please try again."));
+    xhr.onabort = () => reject(new Error("__CANCELLED__"));
+    onInit?.(xhr);
     xhr.send(body);
   });
 }
@@ -101,6 +104,8 @@ export default function Upload() {
   const [stagedVideoId, setStagedVideoId] = useState<string | null>(null);
   const [stageError, setStageError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
+  const uploadCtrlRef = useRef<{ cancel: () => void } | null>(null);
+  const cancelledRef = useRef(false);
   const [uploadPct, setUploadPct] = useState(0);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
