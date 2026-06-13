@@ -49,7 +49,7 @@ function blobToBase64(blob: Blob): Promise<string> {
 }
 
 // Files larger than this use chunked multipart upload (R2 single PUT caps at 5 GiB).
-const MULTIPART_THRESHOLD = 4 * 1024 * 1024 * 1024; // 4 GiB
+const MULTIPART_THRESHOLD = 5 * 1024 * 1024 * 1024; // 5 GiB
 
 // PUT a blob with real upload-progress (web). fetch() can't report upload
 // progress, so we use XMLHttpRequest which exposes upload.onprogress.
@@ -97,7 +97,10 @@ export default function Upload() {
   const [thumbOptions, setThumbOptions] = useState<
     { uri: string; base64: string; label: string }[]
   >([]);
-  const [uploading, setUploading] = useState(false);
+  const [staging, setStaging] = useState(false);
+  const [stagedVideoId, setStagedVideoId] = useState<string | null>(null);
+  const [stageError, setStageError] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState(false);
   const [uploadPct, setUploadPct] = useState(0);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -219,42 +222,41 @@ export default function Upload() {
     setThumbOptions([]);
     const durMs = dur ? (dur > 1000 ? dur : dur * 1000) : undefined;
     generateThumbnailOptions(asset.uri, durMs);
+    // Start uploading to storage immediately so the progress bar shows right
+    // away while the user fills in the title. Publish then just finalizes it.
+    setErr(null);
+    setMsg(null);
+    const sz = (asset as any).fileSize ?? 0;
+    if (user?.is_subscribed && sz <= MULTIPART_THRESHOLD) {
+      stageUpload(asset.uri, asset.mimeType || "video/mp4");
+    }
   };
 
-  const uploadViaSinglePut = async (): Promise<string> => {
-    const presigned = await api.post<{
-      video_id: string;
-      upload_url: string;
-      headers: Record<string, string>;
-    }>("/videos/upload-url", {
-      title: title.trim(),
-      description: desc.trim(),
-      mime_type: pickedMime,
-      no_ai_confirmed: true,
-    });
-
+  // Stream a file to a presigned R2 URL with real progress. Native streams
+  // straight from disk (never loads the video into memory — the old cause of
+  // "network failed"); web PUTs the blob via XHR for progress.
+  const streamPut = async (
+    fileUri: string,
+    uploadUrl: string,
+    headers: Record<string, string>,
+    onPct: (n: number) => void
+  ): Promise<void> => {
     if (Platform.OS === "web") {
-      // Web has the file as a blob URL; PUT it with XHR for progress.
-      const resp = await fetch(pickedUri!);
+      const resp = await fetch(fileUri);
       const blob = await resp.blob();
-      await xhrPut(presigned.upload_url, presigned.headers, blob, setUploadPct);
+      await xhrPut(uploadUrl, headers, blob, onPct);
     } else {
-      // Native: stream the file straight from disk so we never load a
-      // multi-hundred-MB video into JS memory (the cause of "network failed"),
-      // and report real progress via the task callback.
       const task = createUploadTask(
-        presigned.upload_url,
-        pickedUri!,
+        uploadUrl,
+        fileUri,
         {
           httpMethod: "PUT",
           uploadType: FileSystemUploadType.BINARY_CONTENT,
-          headers: presigned.headers,
+          headers,
         },
         (p) => {
           if (p.totalBytesExpectedToSend > 0) {
-            setUploadPct(
-              Math.round((p.totalBytesSent / p.totalBytesExpectedToSend) * 100)
-            );
+            onPct(Math.round((p.totalBytesSent / p.totalBytesExpectedToSend) * 100));
           }
         }
       );
@@ -265,11 +267,38 @@ export default function Upload() {
         );
       }
     }
+  };
 
-    await api.post(`/videos/${presigned.video_id}/complete`, {
-      client_duration_sec: pickedDuration ?? undefined,
-    });
-    return presigned.video_id;
+  // Eager upload: the moment a video is picked we stage it to storage (no title
+  // yet) so the progress bar starts immediately. Publish then just finalizes it.
+  const stageUpload = async (fileUri: string, mime: string) => {
+    setStageError(null);
+    setStagedVideoId(null);
+    setStaging(true);
+    setUploadPct(0);
+    try {
+      const presigned = await api.post<{
+        video_id: string;
+        upload_url: string;
+        headers: Record<string, string>;
+      }>("/videos/upload-url", {
+        title: "",
+        description: "",
+        mime_type: mime,
+        no_ai_confirmed: false,
+      });
+      await streamPut(fileUri, presigned.upload_url, presigned.headers, setUploadPct);
+      setStagedVideoId(presigned.video_id);
+    } catch (e: any) {
+      const m = e?.message ?? "Upload failed";
+      if (typeof m === "string" && m.includes("(402)")) {
+        setStageError("Membership required to upload.");
+      } else {
+        setStageError(typeof m === "string" ? m : "Upload failed. Tap to retry.");
+      }
+    } finally {
+      setStaging(false);
+    }
   };
 
   // Large files (> 4 GiB) can't use a single R2 PUT (5 GiB cap), so we upload
@@ -316,7 +345,7 @@ export default function Upload() {
     }
   };
 
-  const onUpload = async () => {
+  const onPublish = async () => {
     setErr(null);
     setMsg(null);
     if (!title.trim()) return setErr("Title is required.");
@@ -326,30 +355,55 @@ export default function Upload() {
       router.push("/paywall");
       return;
     }
-    setUploading(true);
-    setUploadPct(0);
-    try {
-      // Decide single-PUT vs multipart by file size WITHOUT loading the file
-      // into memory. Native streams from disk; only the rare >4 GiB multipart
-      // path reads the blob (for chunk slicing).
-      const size = pickedSize ?? 0;
-      const videoId =
-        size > MULTIPART_THRESHOLD
-          ? await uploadViaMultipart(await (await fetch(pickedUri)).blob())
-          : await uploadViaSinglePut();
+    if (staging) return setErr("Please wait for the video to finish uploading.");
+    if (stageError) return setErr("Upload failed. Tap the video to retry, then publish.");
 
-      // Best-effort thumbnail upload (don't fail the whole upload if it errors)
-      if (thumbBase64) {
-        try {
-          await api.put(`/videos/${videoId}/thumbnail`, {
-            thumbnail_base64: thumbBase64,
-          });
-        } catch (_) {
-          // ignore — video is uploaded; thumb can be re-set later
-        }
+    setPublishing(true);
+    try {
+      const size = pickedSize ?? 0;
+      let videoId: string;
+      if (stagedVideoId) {
+        // File already uploaded eagerly on select — just finalize/publish it.
+        await api.post(`/videos/${stagedVideoId}/complete`, {
+          title: title.trim(),
+          description: desc.trim(),
+          no_ai_confirmed: true,
+          client_duration_sec: pickedDuration ?? undefined,
+        });
+        videoId = stagedVideoId;
+      } else if (size > MULTIPART_THRESHOLD) {
+        // Very large (>5 GiB) files weren't pre-staged; chunk-upload now.
+        videoId = await uploadViaMultipart(await (await fetch(pickedUri)).blob());
+      } else {
+        // Staging didn't run (e.g. just subscribed) — stage then finalize now.
+        const presigned = await api.post<{
+          video_id: string;
+          upload_url: string;
+          headers: Record<string, string>;
+        }>("/videos/upload-url", {
+          title: "",
+          description: "",
+          mime_type: pickedMime,
+          no_ai_confirmed: false,
+        });
+        await streamPut(pickedUri, presigned.upload_url, presigned.headers, setUploadPct);
+        await api.post(`/videos/${presigned.video_id}/complete`, {
+          title: title.trim(),
+          description: desc.trim(),
+          no_ai_confirmed: true,
+          client_duration_sec: pickedDuration ?? undefined,
+        });
+        videoId = presigned.video_id;
       }
 
-      setMsg("Upload complete!");
+      // Best-effort thumbnail upload (don't fail publish if it errors)
+      if (thumbBase64) {
+        try {
+          await api.put(`/videos/${videoId}/thumbnail`, { thumbnail_base64: thumbBase64 });
+        } catch (_) {}
+      }
+
+      setMsg("Published!");
       setTitle("");
       setDesc("");
       setPickedUri(null);
@@ -359,18 +413,20 @@ export default function Upload() {
       setThumbUri(null);
       setThumbBase64(null);
       setNoAi(false);
+      setStagedVideoId(null);
+      setStageError(null);
+      setUploadPct(0);
       await refresh();
       setTimeout(() => router.push("/(tabs)/home"), 600);
     } catch (e: any) {
-      const m = e?.message ?? "Upload failed";
+      const m = e?.message ?? "Publish failed";
       if (typeof m === "string" && m.includes("(402)")) {
         router.push("/paywall");
         return;
       }
-      setErr(m);
+      setErr(typeof m === "string" ? m : "Publish failed");
     } finally {
-      setUploading(false);
-      setUploadPct(0);
+      setPublishing(false);
     }
   };
 
@@ -579,11 +635,12 @@ export default function Upload() {
           {err ? <Text style={styles.error} testID="upload-error">{err}</Text> : null}
           {msg ? <Text style={styles.success} testID="upload-success">{msg}</Text> : null}
 
-          {uploading ? (
+          {/* Eager upload progress — appears the moment a video is selected. */}
+          {staging ? (
             <View style={styles.progressWrap} testID="upload-progress">
               <View style={styles.progressHeaderRow}>
                 <Text style={styles.progressTitle}>
-                  {uploadPct >= 100 ? "Finishing up…" : "Uploading your video…"}
+                  {uploadPct >= 100 ? "Finishing upload…" : "Uploading your video…"}
                 </Text>
                 <Text style={styles.progressPct} testID="upload-progress-pct">{uploadPct}%</Text>
               </View>
@@ -594,24 +651,54 @@ export default function Upload() {
                 />
               </View>
               <Text style={styles.progressHint}>
-                Keep the app open — large videos can take a few minutes.
+                You can add a title while it uploads. Keep the app open.
               </Text>
+            </View>
+          ) : stagedVideoId ? (
+            <View style={[styles.progressWrap, styles.stagedWrap]} testID="upload-staged">
+              <Ionicons name="checkmark-circle" size={18} color={colors.brand} />
+              <Text style={styles.stagedText}>Video uploaded — add a title and publish.</Text>
+            </View>
+          ) : stageError ? (
+            <Pressable
+              testID="upload-stage-retry"
+              onPress={() => pickedUri && stageUpload(pickedUri, pickedMime)}
+              style={[styles.progressWrap, styles.stageErrorWrap]}
+            >
+              <Ionicons name="alert-circle" size={18} color={colors.error} />
+              <Text style={styles.stageErrorText}>{stageError} Tap to retry.</Text>
+            </Pressable>
+          ) : null}
+
+          {/* Publishing loading bar — finalizes the already-uploaded video. */}
+          {publishing ? (
+            <View style={styles.progressWrap} testID="publish-progress">
+              <View style={styles.progressHeaderRow}>
+                <Text style={styles.progressTitle}>Publishing…</Text>
+                <ActivityIndicator color={colors.brand} />
+              </View>
+              <View style={styles.progressTrack}>
+                <View style={[styles.progressFill, styles.indeterminate]} />
+              </View>
             </View>
           ) : null}
 
           <Pressable
             testID="upload-submit-button"
-            disabled={uploading}
-            onPress={onUpload}
-            style={({ pressed }) => [styles.submit, (pressed || uploading) && { opacity: 0.7 }]}
+            disabled={publishing || staging}
+            onPress={onPublish}
+            style={({ pressed }) => [
+              styles.submit,
+              (pressed || publishing || staging) && { opacity: 0.6 },
+            ]}
           >
-            {uploading ? (
+            {publishing ? (
               <View style={styles.submitBusyRow}>
                 <ActivityIndicator color={colors.onBrand} />
-                <Text style={styles.submitText}>
-                  {uploadPct > 0 ? `Uploading… ${uploadPct}%` : "Preparing…"}
-                </Text>
+                <Text style={styles.submitText}>Publishing…</Text>
               </View>
+            ) : staging ? (
+              <Text style={styles.submitText}>Uploading… {uploadPct}%</Text>
             ) : (
               <Text style={styles.submitText}>Publish</Text>
             )}
@@ -714,6 +801,16 @@ const styles = StyleSheet.create({
   },
   progressFill: { height: "100%", borderRadius: 999, backgroundColor: colors.brand },
   progressHint: { color: colors.onSurfaceSecondary, fontSize: text.xs, marginTop: spacing.sm },
+  stagedWrap: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  stagedText: { color: colors.onSurface, fontSize: text.sm, fontWeight: "600", flex: 1 },
+  stageErrorWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    borderColor: colors.error,
+  },
+  stageErrorText: { color: colors.error, fontSize: text.sm, fontWeight: "600", flex: 1 },
+  indeterminate: { width: "100%" },
   error: { color: colors.error, backgroundColor: colors.errorBg, padding: spacing.md, borderRadius: radius.sm, marginBottom: spacing.sm },
   success: { color: colors.onBrand, backgroundColor: colors.success, padding: spacing.md, borderRadius: radius.sm, marginBottom: spacing.sm },
   thumbCard: {

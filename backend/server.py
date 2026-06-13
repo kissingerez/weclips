@@ -1347,10 +1347,10 @@ async def revenuecat_webhook(
 
 # --- Routes: Videos ---
 class UploadUrlReq(BaseModel):
-    title: str = Field(min_length=1, max_length=120)
+    title: str = Field(default="", max_length=120)
     description: str = Field(default="", max_length=2000)
     mime_type: str = Field(default="video/mp4")
-    no_ai_confirmed: bool
+    no_ai_confirmed: bool = False
 
 
 class UploadUrlResp(BaseModel):
@@ -1374,8 +1374,6 @@ def _r2_key_for(video_id: str, mime_type: str) -> str:
 
 @api.post("/videos/upload-url", response_model=UploadUrlResp)
 async def create_upload_url(body: UploadUrlReq, user: dict = Depends(require_subscriber)):
-    if not body.no_ai_confirmed:
-        raise HTTPException(status_code=400, detail="You must confirm the WeClips content policy")
     if s3 is None:
         raise HTTPException(status_code=500, detail="Cloud storage not configured")
 
@@ -1646,6 +1644,9 @@ async def abort_multipart_upload(video_id: str, user: dict = Depends(require_sub
 
 class CompleteUploadReq(BaseModel):
     client_duration_sec: Optional[float] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    no_ai_confirmed: Optional[bool] = None
 
 
 @api.post("/videos/{video_id}/complete", response_model=VideoPublic)
@@ -1710,6 +1711,18 @@ async def complete_upload(
         )
 
     update: dict = {"upload_complete": True, "file_size": size}
+    # Eager-upload flow: title/description/policy arrive at publish time (the
+    # file was staged on select). Enforce them here since this is when the
+    # video goes live.
+    if body and body.title is not None:
+        t = body.title.strip()
+        if not t:
+            raise HTTPException(status_code=400, detail="Title is required")
+        if body.no_ai_confirmed is not True:
+            raise HTTPException(status_code=400, detail="You must confirm the WeClips content policy")
+        update["title"] = t[:120]
+        if body.description is not None:
+            update["description"] = body.description.strip()[:2000]
     # Prefer the server-probed duration; fall back to the client-measured value
     # (expo-image-picker asset duration) when ffprobe isn't available so the
     # duration chip still renders.
