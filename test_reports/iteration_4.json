@@ -1,0 +1,48 @@
+{
+  "summary": "Tested the Apple 5.1.1 guest-access fix end-to-end (backend + frontend). 26/26 new pytest cases PASS in /app/backend/tests/test_guest_access.py covering: (a) the 4 read endpoints now allow guests (no Authorization header) — GET /videos, /users/{id}, /users/{id}/videos, /users/search?q=ni, /videos/{id} all return 200 with valid payloads; (b) gated endpoints still 401 for guests — /videos/{id}/stream-url, /videos/{id}/comments (GET+POST), /videos/{id}/like, /users/{id}/follow, /videos/upload-url; (c) logged-in (appletest) regression — /auth/login, /auth/me, /videos, /videos/{id}, /videos/{id}/comments, /users/{id}, /users/{id}/videos all 200; stream-url returns a presigned URL (subscriber); (d) no 5xx anywhere on the touched paths. Frontend (Expo web preview, mobile viewport 390x844): GUEST flow verified — app opens to /(tabs)/home (NEVER /login), Discover feed renders video cards, Profile/Upload/Following tabs show the new SignInWall (testID=signin-wall) with the exact required copy, /video/{id} shows the 'Sign in to watch' overlay (testID=video-signin-overlay) and skips the stream-url fetch, /user/{id} loads a creator's public profile + their clips, /search loads without redirect. LOGGED-IN regression — after sign-in, Profile shows the user's data (no wall), Upload pick button is present, Following header renders, settings gear works, and /video/{id} loads the player WITHOUT the overlay. RCA + fix applied: I caught a regression in /app/frontend/app/video/[id].tsx — the stream-url useEffect was guarded with `if (!id || !user) return` but `user` was NOT in the dependency array (`[id, router]`). When the page mounts before auth hydration finishes, the effect runs once with user=null, exits early, and never re-runs — so the player never gets a stream URL and the video can't play even for valid subscribers. Confirmed via backend logs (no /stream-url request seen) and a network listener (0 stream-url calls). Added `user` to the deps; after the fix, stream-url is called and the <video> element has src loaded (srcLen=402, readyState progressing). Verified post-fix in a fresh login session. All guest tests and the logged-in regression now pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "video/[id].tsx (stream-url effect deps)",
+        "issue": "FIXED by tester. useEffect at lines 64-90 now correctly includes `user` in its dependency array (was [id, router], now [id, user, router]). Without this fix, a logged-in user opening /video/{id} immediately after sign-in (before tokenStorage hydrates the user) would see no video — the effect early-exits on user=null and never re-runs.",
+        "testID": "video-signin-overlay",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_guest_access.py",
+    "/app/test_reports/pytest/guest_access_results.xml"
+  ],
+  "action_items": [
+    "Self-verify the /app/frontend/app/video/[id].tsx change (one-line dep-array fix on line 90: [id, router] -> [id, user, router]). No other action required for this iteration — guest flow works exactly as specified.",
+    "(Carried over from iteration_3, unchanged) Optional: wrap /auth/forgot-password's SendGrid call in `_send_email_nonblocking` (server.py:1012) — last remaining sync-SendGrid hole.",
+    "(Carried over) Optional: pin bcrypt<4 to silence the noisy passlib AttributeError on startup."
+  ],
+  "critical_code_review_comments": [
+    "AuthGate (frontend/app/_layout.tsx) correctly no longer redirects guests to /(auth)/login. The only redirects are: (a) logged-in users away from auth screens, (b) banned users to /banned, (c) un-banned users off /banned. Guests fall through and land on /(tabs)/home via index.tsx -> Redirect. This is exactly the Apple 5.1.1 fix shape.",
+    "SignInWall component is clean, has testIDs (signin-wall, signin-wall-signin, signin-wall-signup), uses React Native primitives (Pressable/View/Text), all text is wrapped, and routes to /(auth)/login and /(auth)/signup.",
+    "Tabs `upload.tsx`, `following.tsx`, `profile.tsx` all guard with `if (!user)` and render SignInWall with the exact copy required by the PR. Profile keeps the settings gear visible above the wall (intentional — gear opens settings page; if you want guests blocked from settings too, also guard that screen).",
+    "Video screen guest overlay (video/[id].tsx line ~233) renders `[data-testid=video-signin-overlay]` for guests, and the stream-url fetch correctly skips when !user — i.e. no 401 spam from guests on /stream-url. After my fix the effect re-runs once user is hydrated.",
+    "Backend: get_user_public, get_user_videos, search_users, and the video-detail GET now use `get_current_user_optional` so they accept Authorization or no Authorization. Stream-url, comments (GET+POST), like, follow, upload-url remain on `get_current_user` (required). Confirmed by 401 vs 200 matrix in pytest.",
+    "server.py is still 3700+ lines — same comment from iteration_3 applies; consider routing extraction. Not blocking."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_guest_access.py (new, 26 tests)",
+    "/app/test_reports/pytest/guest_access_results.xml (new, JUnit)",
+    "/app/frontend/app/video/[id].tsx (fixed: added `user` to stream-url useEffect dependency array — line 90)"
+  ],
+  "success_rate": {"backend": "100% (26/26 guest_access + 21/21 prior auth = 47/47)", "frontend": "100% on guest+auth flows after the dep-array fix"},
+  "seed_data_creation": "None — used the existing Apple demo account (appletest@weclips.app) and the sample creator/video IDs provided in the request.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Apple 5.1.1 guest fix is complete and verified backend + frontend. The one regression I caught (stream-url effect missing `user` dep) is already fixed in /app/frontend/app/video/[id].tsx line 90. To simulate a guest on web: page.context.clear_cookies() + localStorage.clear() + reload — guest will land on /home directly. Backend public URL: https://weclips-preview.preview.emergentagent.com. Apple demo creds: appletest@weclips.app / AppleReview2026!.",
+  "rca_of_issue": "Regression in /app/frontend/app/video/[id].tsx introduced by this PR. The new guest-skip guard `if (!id || !user) return;` was added to the stream-url useEffect, but the dependency array was left as `[id, router]`. React only re-runs effects when a dependency changes. When a logged-in user navigates to /video/{id} immediately after sign-in (common), the AuthProvider has not yet hydrated `user` from tokenStorage — so the effect runs with user=null, hits the guard, exits. Once user is hydrated React does not re-run the effect (user is not in deps), so the stream URL is never fetched and the <video> element stays empty. Reproduction: log in -> navigate to /video/{id} -> observe no /api/videos/{id}/stream-url request in backend logs and <video>.src remains empty for >20s. Mitigation (applied): change deps to `[id, user, router]`. After the fix, stream-url is called and the player loads (verified with a network listener and DOM polling — srcLen=402, readyState advancing)."
+}

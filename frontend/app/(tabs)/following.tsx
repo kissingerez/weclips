@@ -4,17 +4,24 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { VideoCard, VideoCardData } from "@/src/components/VideoCard";
+import { SignInWall } from "@/src/components/SignInWall";
 import { api } from "@/src/lib/api";
+import { useAuth } from "@/src/lib/auth";
 import { colors, spacing, text, brandFont } from "@/src/theme";
 
 export default function Following() {
   const router = useRouter();
+  const { user } = useAuth();
   const [videos, setVideos] = useState<VideoCardData[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(async (showSpinner = false) => {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
     try {
       if (showSpinner) setLoading(true);
       setErr(null);
@@ -37,6 +44,21 @@ export default function Following() {
   useEffect(() => {
     load(true);
   }, [load]);
+
+  if (!user) {
+    return (
+      <SafeAreaView style={styles.root} edges={["top"]}>
+        <View style={styles.header}>
+          <Text style={styles.brand}>Following</Text>
+        </View>
+        <SignInWall
+          icon="people-outline"
+          title="Sign in to see Following"
+          message="Follow creators and their latest clips will show up here."
+        />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>

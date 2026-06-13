@@ -17,6 +17,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as VideoThumbnails from "expo-video-thumbnails";
 import { useRouter } from "expo-router";
 import { useAuth } from "@/src/lib/auth";
+import { SignInWall } from "@/src/components/SignInWall";
 import { API_BASE, api } from "@/src/lib/api";
 import { tokenStorage } from "@/src/lib/tokenStorage";
 import { colors, radius, spacing, text } from "@/src/theme";
@@ -317,6 +318,21 @@ export default function Upload() {
       setUploadPct(0);
     }
   };
+
+  if (!user) {
+    return (
+      <SafeAreaView style={styles.root} edges={["top"]}>
+        <View style={styles.header}>
+          <Text style={styles.h1}>Upload</Text>
+        </View>
+        <SignInWall
+          icon="cloud-upload-outline"
+          title="Sign in to upload"
+          message="Create a free account to share your own clips on WeClips."
+        />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>

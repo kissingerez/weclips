@@ -8,6 +8,7 @@ import { api } from "@/src/lib/api";
 import { confirmDialog } from "@/src/lib/dialogs";
 import { VideoCard, VideoCardData } from "@/src/components/VideoCard";
 import { Avatar } from "@/src/components/Avatar";
+import { SignInWall } from "@/src/components/SignInWall";
 import { colors, radius, spacing, text } from "@/src/theme";
 
 export default function Profile() {
@@ -48,7 +49,13 @@ export default function Profile() {
           <Ionicons name="settings-outline" size={22} color={colors.onSurface} />
         </Pressable>
       </View>
-
+      {!user ? (
+        <SignInWall
+          icon="person-circle-outline"
+          title="Sign in to view your profile"
+          message="Create a free account to upload clips, follow creators, and manage your profile."
+        />
+      ) : (
       <ScrollView
         testID="profile-scroll"
         contentContainerStyle={styles.scrollContent}
@@ -197,6 +204,7 @@ export default function Profile() {
           ))
         )}
       </ScrollView>
+      )}
     </SafeAreaView>
   );
 }

@@ -22,9 +22,10 @@ function AuthGate() {
     if (loading) return;
     const inAuth = segments[0] === "(auth)";
     const onBannedScreen = segments[0] === "banned";
-    if (!user && !inAuth) {
-      router.replace("/(auth)/login");
-    } else if (user && inAuth) {
+    // Guests are allowed to browse non-account features (Apple 5.1.1). We only
+    // redirect: logged-in users away from the auth screens, and banned users to
+    // the banned screen. Guests are never forced to log in.
+    if (user && inAuth) {
       router.replace("/(tabs)/home");
     } else if (user?.is_banned && !onBannedScreen) {
       router.replace("/banned");

@@ -565,7 +565,7 @@ async def _batch_follower_counts(user_ids: List[str]) -> dict:
 async def search_users(
     q: str,
     limit: int = 20,
-    user: dict = Depends(get_current_user),
+    user: Optional[dict] = Depends(get_current_user_optional),
 ):
     term = (q or "").strip().lstrip("@")
     if len(term) < 1:
@@ -588,7 +588,7 @@ async def search_users(
     ).limit(min(max(limit, 1), 50))
     rows: List[dict] = []
     async for u in cursor:
-        if u["_id"] == user["_id"]:
+        if user and u["_id"] == user["_id"]:
             continue
         rows.append(u)
     # Batch follower lookup — single $group aggregation instead of N queries.
@@ -613,7 +613,7 @@ async def search_users(
 
 
 @api.get("/users/{target_user_id}", response_model=UserSearchResult)
-async def get_user_public(target_user_id: str, user: dict = Depends(get_current_user)):
+async def get_user_public(target_user_id: str, user: Optional[dict] = Depends(get_current_user_optional)):
     proj = {
         "display_name": 1,
         "username": 1,
@@ -632,7 +632,7 @@ async def get_user_public(target_user_id: str, user: dict = Depends(get_current_
         raise HTTPException(status_code=404, detail="User not found")
     hidden = bool(u.get("followers_hidden", False))
     # Owner sees their own count even if hidden.
-    is_owner = (target_user_id == user["_id"])
+    is_owner = bool(user) and (target_user_id == user["_id"])
     followers = (
         await follows_col.count_documents({"followee_id": target_user_id})
         if (is_owner or not hidden)
@@ -649,7 +649,7 @@ async def get_user_public(target_user_id: str, user: dict = Depends(get_current_
         is_founder=bool(u.get("is_founder", False)),
     )
     # Only expose moderation state to other founders.
-    if user.get("is_founder"):
+    if user and user.get("is_founder"):
         bs = _ban_state(u)
         result.is_banned = bs["is_banned"]
         result.ban_type = bs["ban_type"]
@@ -753,7 +753,7 @@ async def get_user_avatar(target_user_id: str):
 
 
 @api.get("/users/{target_user_id}/videos", response_model=List[VideoPublic])
-async def get_user_videos(target_user_id: str, user: dict = Depends(get_current_user)):
+async def get_user_videos(target_user_id: str, user: Optional[dict] = Depends(get_current_user_optional)):
     cursor = (
         videos_col.find(
             {
@@ -1878,7 +1878,7 @@ async def my_videos(user: dict = Depends(get_current_user)):
 
 
 @api.get("/videos/{video_id}", response_model=VideoPublic)
-async def get_video(video_id: str, user: dict = Depends(require_subscriber)):
+async def get_video(video_id: str, user: Optional[dict] = Depends(get_current_user_optional)):
     v = await videos_col.find_one(
         {"_id": video_id}, {"content_base64": 0, "thumbnail_base64": 0, "liked_by": 0}
     )
@@ -1886,7 +1886,7 @@ async def get_video(video_id: str, user: dict = Depends(require_subscriber)):
         raise HTTPException(status_code=404, detail="Not found")
     # Count unique views — same user refreshing doesn't bump the count
     viewed_by = v.get("viewed_by", []) or []
-    if user["_id"] not in viewed_by:
+    if user and user["_id"] not in viewed_by:
         await videos_col.update_one(
             {"_id": video_id},
             {"$addToSet": {"viewed_by": user["_id"]}, "$inc": {"views": 1}},

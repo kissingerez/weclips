@@ -12,5 +12,5 @@ export default function Index() {
       </View>
     );
   }
-  return <Redirect href={user ? "/(tabs)/home" : "/(auth)/login"} />;
+  return <Redirect href="/(tabs)/home" />;
 }

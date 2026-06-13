@@ -64,7 +64,7 @@ export default function VideoScreen() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (!id) return;
+      if (!id || !user) return;
       try {
         const tok = await tokenStorage.get();
         const resp = await api.get<{ stream_url: string; legacy?: boolean }>(
@@ -87,7 +87,7 @@ export default function VideoScreen() {
     return () => {
       cancelled = true;
     };
-  }, [id, router]);
+  }, [id, user, router]);
 
   const player = useVideoPlayer(streamUrl || null, (p) => {
     p.loop = false;
@@ -230,6 +230,16 @@ export default function VideoScreen() {
             nativeControls
             contentFit="contain"
           />
+          {!user ? (
+            <Pressable
+              testID="video-signin-overlay"
+              onPress={() => router.push("/(auth)/login")}
+              style={styles.signinOverlay}
+            >
+              <Ionicons name="lock-closed" size={30} color="#ffffff" />
+              <Text style={styles.signinOverlayText}>Sign in to watch</Text>
+            </Pressable>
+          ) : null}
           <Pressable testID="video-back-button" onPress={() => router.back()} style={styles.backIcon} hitSlop={10}>
             <Ionicons name="arrow-back" size={26} color="#ffffff" />
           </Pressable>
@@ -491,6 +501,14 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   playerWrap: { width: "100%", aspectRatio: 16 / 9, backgroundColor: "#000" },
   player: { width: "100%", height: "100%" },
+  signinOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.78)",
+    gap: 8,
+  },
+  signinOverlayText: { color: "#ffffff", fontSize: 16, fontWeight: "800" },
   backIcon: { position: "absolute", top: spacing.sm, left: spacing.sm, padding: spacing.sm, backgroundColor: "rgba(0,0,0,0.7)", borderRadius: radius.pill, shadowColor: "#000", shadowOpacity: 0.4, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 4 },
   fsIcon: { position: "absolute", top: spacing.sm, right: spacing.sm, padding: spacing.sm, backgroundColor: "rgba(0,0,0,0.7)", borderRadius: radius.pill, shadowColor: "#000", shadowOpacity: 0.4, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 4 },
   followBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.pill, alignSelf: "flex-start", marginTop: spacing.sm },
