@@ -1009,7 +1009,7 @@ async def forgot_password(body: ForgotPasswordReq):
     base = APP_PUBLIC_URL.rstrip("/")
     reset_url = f"{base}/reset?token={token}"
 
-    sent = _send_password_reset_email(email, reset_url)
+    sent = await _send_email_nonblocking(_send_password_reset_email, email, reset_url)
     if not sent:
         # No email service configured (preview mode) — return the URL so the
         # user can still complete the reset. Disabled automatically once

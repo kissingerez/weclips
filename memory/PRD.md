@@ -91,3 +91,9 @@ Anyone can browse the catalog when authenticated, but **watching requires an act
 - **Defensive login:** `user["password_hash"]` → `user.get("password_hash") or ""` so a doc missing the field returns 401 instead of an unhandled 500.
 - Verified: JWT_SECRET_KEY/Mongo OK in preview (no startup crash, feeds 200). Tests: `backend/tests/test_auth_hardening.py` (5/5 pass) + curl (login 200, wrong-pw 401, forgot 200).
 - ⚠️ ACTION REQUIRED: Production deployment uses its OWN env vars — the live `APP_PUBLIC_URL` must be set to `https://weclips.app` in the deployment (or redeploy) for live reset emails to change.
+
+## Session Update — 2026-02 (Auth lifecycle test + follow-up fix)
+- Testing agent ran full auth lifecycle: 21/21 pass (test_auth_hardening.py + test_auth_lifecycle.py). No 5xx on any auth endpoint.
+- Follow-up fix: `forgot_password` (server.py:1012) was still calling SendGrid synchronously (my earlier parallel edits to the same file collided and dropped this one). Now routed through `_send_email_nonblocking`. Both OTP + reset email paths are non-blocking → 520 surface fully closed.
+- Known cosmetic: passlib `bcrypt.__about__` startup warning (harmless; left as-is to avoid hash-compat risk).
+- LESSON: never run two search_replace on the SAME file in parallel — apply sequentially.
