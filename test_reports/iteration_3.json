@@ -1,0 +1,50 @@
+{
+  "summary": "Full auth-lifecycle backend regression for the SendGrid-non-blocking + Cloudflare-520 hardening. Created /app/backend/tests/test_auth_lifecycle.py (pytest, 16/16 PASS) covering: Apple-demo login (200 + access_token), wrong password (401, NOT 500), unknown email (401), GET /auth/me with Bearer token (200), signup creates email_verified=false user and returns {status:'verification_required'} with NO access_token, login of an unverified user returns 403 'EMAIL_NOT_VERIFIED' in <20s (non-blocking confirmed), POST /auth/resend-verification returns promptly for both existing (200/429) and unknown (200) emails, POST /auth/verify-email with WRONG code returns 400 AND increments the attempts counter in MongoDB, POST /auth/verify-email SUCCESS path (seeded code_hash = sha256(known_code) in email_verifications) returns 200 + access_token, flips users.email_verified=true, deletes the verification row, and the returned token works on /auth/me, POST /auth/forgot-password for existing + nonexistent emails both return 200 in <20s, POST /auth/reset-password with invalid/expired tokens returns 400, with a VALID seeded token (token_hash = sha256(token) in password_resets) returns 200, the user's password_hash is actually updated (verified by logging in with the new password AND confirming the old password no longer works), and replaying the same token returns 400 (used=true). A separate smoke test asserts none of /auth/login, /auth/forgot-password, /auth/resend-verification, /auth/verify-email, /auth/reset-password ever return 5xx — i.e. the Cloudflare-520 root cause is gone for the verification + login path. The pre-existing test_auth_hardening.py (5/5) still passes alongside (21/21 total). Test users are cleaned up via a module-level fixture.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/auth/forgot-password",
+        "issue": "Synchronous SendGrid call still inline at server.py:1012 (`sent = _send_password_reset_email(email, reset_url)`) — not wrapped in `_send_email_nonblocking`. The OTP-verification path WAS migrated (server.py:1125 uses `_send_email_nonblocking`), but the password-reset email path was missed. This is the exact pattern that caused the original Cloudflare 520 on /auth/login. In testing, forgot-password returned 200 in <20s (SendGrid happened to be fast), but under slow SendGrid this endpoint can still block the event loop and stall ALL requests. Wrap it: `sent = await _send_email_nonblocking(_send_password_reset_email, email, reset_url)`."
+      },
+      {
+        "endpoint": "backend startup",
+        "issue": "passlib bcrypt version probe still emits AttributeError ('module bcrypt has no attribute __about__') at every reload (var/log/supervisor/backend.err.log). Harmless (bcrypt still hashes), but pin bcrypt<4 or upgrade passlib to silence. (Carried over from iteration_2.)"
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_auth_lifecycle.py",
+    "/app/test_reports/pytest/auth_lifecycle_results.xml",
+    "/app/backend/tests/test_auth_hardening.py"
+  ],
+  "action_items": [
+    "RECOMMENDED: Wrap the password-reset SendGrid call in `_send_email_nonblocking` (server.py line 1012) to close the last remaining sync-SendGrid-in-async-handler hole. The OTP path was correctly migrated (line 1125); forgot-password was missed.",
+    "OPTIONAL: Pin bcrypt<4 in backend/requirements.txt (or upgrade passlib) to clear the noisy `bcrypt.__about__` AttributeError on every backend reload."
+  ],
+  "critical_code_review_comments": [
+    "`_send_email_nonblocking` (server.py:968) is the correct fix shape — asyncio.to_thread + 15s wait_for + broad except — and is correctly used for the verification email (line 1125). However it is NOT used for the password-reset email (line 1012 still calls `_send_password_reset_email(...)` directly), which means the password-reset endpoint can still block the event loop under slow SendGrid. Same root cause as the original 520. Easy one-line fix.",
+    "Login defensive guard (`user.get('password_hash') or ''`, server.py:789) is correct — accounts missing the field now 401 instead of 500. Verified by /api/auth/login of a fresh signup (no `password_hash` is impossible there, but the bcrypt path with empty hash returns False and produces a clean 401).",
+    "Unverified-login path (server.py:795-808) correctly: (a) only blocks accounts with `email_verified === False` (grandfathered users with no field pass through), (b) auto-issues a fresh OTP respecting the 60s resend cooldown, (c) raises 403 'EMAIL_NOT_VERIFIED' — the exact contract the mobile client routes on.",
+    "verify-email (server.py:1133-1161) correctly: idempotent for already-verified accounts (returns a token), 400 on expired/missing/invalid code, 429 after 5 attempts, increments `attempts` on wrong-code, uses hmac.compare_digest, and deletes the verification row on success. Verified end-to-end via seeded code.",
+    "reset-password (server.py:1023-1049) correctly: 400 on invalid/expired/used token, updates `password_hash` on success, marks the token used, AND invalidates all other outstanding tokens for that user. Verified end-to-end via seeded token + login-with-new-password + login-with-old-password=401 + replay=400.",
+    "APP_PUBLIC_URL is now `https://weclips.app`, so reset_url = `https://weclips.app/reset?token=...` (server.py:1010 + .env:9). Asserted by test_auth_hardening::test_app_public_url_is_weclips (pre-existing, still green).",
+    "Minor: server.py is 3754 lines — far over the 700-line guideline. Auth-only block alone (lines ~785-1190) is large enough to live in its own router module."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_auth_lifecycle.py (new, 16 tests)",
+    "/app/test_reports/pytest/auth_lifecycle_results.xml (new, JUnit)"
+  ],
+  "success_rate": {"backend": "100% (16/16 new + 5/5 existing = 21/21)", "frontend": "skipped per request"},
+  "seed_data_creation": "Three TEST_ users created via /api/auth/signup with lowercase `test_auth_<hex>@example.com` emails. Email-verification and password-reset rows were seeded directly in MongoDB (collections email_verifications and password_resets) using sha256(known_code) / sha256(known_token) to exercise the success paths since SendGrid is configured in preview and codes are not returned in API responses. All seeded users + their verification + reset rows are deleted by a module-level pytest fixture on teardown; verified post-run that 0 `test_auth_` users remain in `users`.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Auth lifecycle is fully green. The one outstanding hardening miss is server.py:1012 (sync SendGrid in /auth/forgot-password) — wrap in `_send_email_nonblocking` to fully close the Cloudflare 520 surface. Direct MongoDB seeding via pymongo (DB=slate_db) works for both email_verifications and password_resets — use sha256 hash + tz-aware UTC `expires_at`. Apple demo creds: appletest@weclips.app / AppleReview2026!. Backend public URL: https://weclips-preview.preview.emergentagent.com.",
+  "rca_of_issue": "Original 520 RCA confirmed: SendGrid SDK is synchronous; calling it inline inside an async FastAPI handler blocks the uvloop event loop, which during slow/unreachable SendGrid stalls all concurrent requests long enough for Cloudflare to time out with 520/524. The fix `_send_email_nonblocking` (asyncio.to_thread + 15s wait_for) is the correct pattern and is in place for the verification-email path. It is NOT yet applied to the password-reset path (server.py:1012), which leaves one hole — recommend wrapping that call before considering the 520 fully closed."
+}
