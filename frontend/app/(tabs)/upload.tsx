@@ -694,50 +694,47 @@ export default function Upload() {
           {err ? <Text style={styles.error} testID="upload-error">{err}</Text> : null}
           {msg ? <Text style={styles.success} testID="upload-success">{msg}</Text> : null}
 
-          {/* Eager upload progress overlaid on the picked video's thumbnail. */}
+          {/* Eager upload progress — a clean straight bar on the upload page. */}
           {staging || stagedVideoId ? (
-            <View style={styles.uploadCard} testID="upload-progress">
-              {thumbUri ? (
-                <Image source={{ uri: thumbUri }} style={styles.uploadCardImg} resizeMode="cover" />
-              ) : (
-                <View style={[styles.uploadCardImg, styles.uploadCardImgFallback]}>
-                  <Ionicons name="videocam" size={36} color={colors.onSurfaceTertiary} />
+            <View style={styles.uploadBar} testID="upload-progress">
+              <View style={styles.uploadBarHeader}>
+                <View style={styles.uploadBarHeaderLeft}>
+                  {staging ? (
+                    <ActivityIndicator size="small" color={colors.brand} />
+                  ) : (
+                    <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+                  )}
+                  <Text style={styles.uploadBarLabel} numberOfLines={1}>
+                    {staging
+                      ? uploadPct >= 100
+                        ? "Finishing upload…"
+                        : "Uploading your video…"
+                      : "Uploaded — ready to publish"}
+                  </Text>
                 </View>
-              )}
-              <View style={styles.uploadCardOverlay}>
-                {staging ? (
-                  <>
-                    <Text style={styles.uploadCardPct} testID="upload-progress-pct">
-                      {uploadPct}%
-                    </Text>
-                    <Text style={styles.uploadCardLabel}>
-                      {uploadPct >= 100 ? "Finishing upload…" : "Uploading your video…"}
-                    </Text>
-                  </>
-                ) : (
-                  <>
-                    <Ionicons name="checkmark-circle" size={40} color="#ffffff" />
-                    <Text style={styles.uploadCardLabel}>Uploaded — ready to publish</Text>
-                  </>
-                )}
+                <View style={styles.uploadBarHeaderRight}>
+                  <Text style={styles.uploadBarPct} testID="upload-progress-pct">
+                    {staging ? `${uploadPct}%` : "100%"}
+                  </Text>
+                  <Pressable
+                    testID="upload-cancel-button"
+                    onPress={cancelUpload}
+                    hitSlop={8}
+                    style={({ pressed }) => [styles.uploadBarCancel, pressed && { opacity: 0.6 }]}
+                  >
+                    <Ionicons name="close" size={16} color={colors.onSurfaceSecondary} />
+                  </Pressable>
+                </View>
               </View>
-              <View style={styles.uploadCardBarTrack}>
+              <View style={styles.uploadBarTrack}>
                 <View
                   testID="upload-progress-fill"
                   style={[
-                    styles.uploadCardBarFill,
+                    styles.uploadBarFill,
                     { width: `${staging ? Math.max(3, uploadPct) : 100}%` },
                   ]}
                 />
               </View>
-              <Pressable
-                testID="upload-cancel-button"
-                onPress={cancelUpload}
-                hitSlop={8}
-                style={({ pressed }) => [styles.uploadCardCancel, pressed && { opacity: 0.7 }]}
-              >
-                <Ionicons name="close" size={18} color="#ffffff" />
-              </Pressable>
             </View>
           ) : stageError ? (
             <Pressable
@@ -891,48 +888,45 @@ const styles = StyleSheet.create({
   },
   stageErrorText: { color: colors.error, fontSize: text.sm, fontWeight: "600", flex: 1 },
   indeterminate: { width: "100%" },
-  uploadCard: {
-    borderRadius: radius.md,
-    overflow: "hidden",
+  uploadBar: {
     marginBottom: spacing.md,
-    backgroundColor: "#000",
-    position: "relative",
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
   },
-  uploadCardImg: { width: "100%", aspectRatio: 16 / 9 },
-  uploadCardImgFallback: {
+  uploadBarHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: spacing.sm,
+  },
+  uploadBarHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    flex: 1,
+    paddingRight: spacing.sm,
+  },
+  uploadBarHeaderRight: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  uploadBarLabel: { color: colors.onSurface, fontSize: text.sm, fontWeight: "700", flexShrink: 1 },
+  uploadBarPct: { color: colors.brand, fontSize: text.sm, fontWeight: "800" },
+  uploadBarCancel: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.surfaceTertiary,
   },
-  uploadCardOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.55)",
-    gap: 4,
+  uploadBarTrack: {
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: colors.surfaceTertiary,
+    overflow: "hidden",
   },
-  uploadCardPct: { color: "#ffffff", fontSize: 40, fontWeight: "900", letterSpacing: -1 },
-  uploadCardLabel: { color: "#ffffff", fontSize: text.sm, fontWeight: "700" },
-  uploadCardBarTrack: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: 6,
-    backgroundColor: "rgba(255,255,255,0.25)",
-  },
-  uploadCardBarFill: { height: "100%", backgroundColor: colors.brand },
-  uploadCardCancel: {
-    position: "absolute",
-    top: 8,
-    right: 8,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.55)",
-  },
+  uploadBarFill: { height: "100%", borderRadius: 999, backgroundColor: colors.brand },
   error: { color: colors.error, backgroundColor: colors.errorBg, padding: spacing.md, borderRadius: radius.sm, marginBottom: spacing.sm },
   success: { color: colors.onBrand, backgroundColor: colors.success, padding: spacing.md, borderRadius: radius.sm, marginBottom: spacing.sm },
   thumbCard: {
