@@ -53,3 +53,6 @@ Verified: backend curl, babel parse, upload screen renders for logged-in user.
 - Settings (app/settings.tsx): new MEMBERSHIP section — subscribed users see "Manage subscription / Cancel or change your plan" (opens native manage-subscriptions / store URL via iap.manageSubscriptions); non-subscribers see "Become a member" → paywall. Both states show "Restore purchases" (iap.rcRestore + /subscription/sync + refresh + alert).
 - iap.ts: added rcRestore() and manageSubscriptions() (Purchases.showManageSubscriptions w/ store-URL fallback).
 - Verified on preview: paywall renders w/o test button (restore present); Settings shows Manage subscription for subscribed appletest and Become a member when not subscribed. tsc clean. NOTE: real purchase/restore/manage only function on a device build.
+
+## 2026-02 — Paywall legal links (Apple 3.1.2)
+- Added "Terms of Use · Privacy Policy" links under the Subscribe button on app/paywall.tsx (route to /legal?section=terms / privacy). Verified rendering (testIDs paywall-terms-link / paywall-privacy-link).

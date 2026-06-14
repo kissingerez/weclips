@@ -173,6 +173,23 @@ export default function Paywall() {
           </Pressable>
 
           <Text style={styles.legal}>Auto-renews. Cancel anytime in your store account.</Text>
+          <View style={styles.legalLinks}>
+            <Pressable
+              testID="paywall-terms-link"
+              onPress={() => router.push({ pathname: "/legal", params: { section: "terms" } })}
+              hitSlop={8}
+            >
+              <Text style={styles.legalLink}>Terms of Use</Text>
+            </Pressable>
+            <Text style={styles.legalDot}>·</Text>
+            <Pressable
+              testID="paywall-privacy-link"
+              onPress={() => router.push({ pathname: "/legal", params: { section: "privacy" } })}
+              hitSlop={8}
+            >
+              <Text style={styles.legalLink}>Privacy Policy</Text>
+            </Pressable>
+          </View>
         </View>
       </SafeAreaView>
     </View>
@@ -211,4 +228,13 @@ const styles = StyleSheet.create({
   error: { color: colors.error, backgroundColor: colors.errorBg, padding: spacing.md, borderRadius: radius.sm },
   info: { color: colors.onBrand, backgroundColor: colors.success, padding: spacing.md, borderRadius: radius.sm },
   legal: { color: colors.onSurfaceTertiary, fontSize: 11, marginTop: spacing.xs, textAlign: "center" },
+  legalLinks: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  legalLink: { color: colors.onSurfaceSecondary, fontSize: 11, fontWeight: "700", textDecorationLine: "underline" },
+  legalDot: { color: colors.onSurfaceTertiary, fontSize: 11 },
 });
