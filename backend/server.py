@@ -98,6 +98,7 @@ comments_col = db["comments"]
 rc_events_col = db["rc_events"]
 password_resets_col = db["password_resets"]
 email_verifications_col = db["email_verifications"]
+sendgrid_events_col = db["sendgrid_events"]
 reports_col = db["reports"]
 blocks_col = db["blocks"]
 follows_col = db["follows"]
@@ -980,7 +981,19 @@ def _send_password_reset_email(to_email: str, reset_url: str) -> bool:
             html_content=html,
         )
         resp = SendGridAPIClient(SENDGRID_API_KEY).send(msg)
-        return 200 <= resp.status_code < 300
+        ok = 200 <= resp.status_code < 300
+        msg_id = resp.headers.get("X-Message-Id") if getattr(resp, "headers", None) else None
+        if ok:
+            logger.info(
+                f"SendGrid reset email accepted: to={to_email} from={SENDGRID_SENDER_EMAIL} "
+                f"status={resp.status_code} msg_id={msg_id}"
+            )
+        else:
+            logger.error(
+                f"SendGrid reset email REJECTED: to={to_email} from={SENDGRID_SENDER_EMAIL} "
+                f"status={resp.status_code} body={getattr(resp, 'body', b'')!r}"
+            )
+        return ok
     except Exception as e:
         logger.exception(f"SendGrid send failed: {e}")
         return False
@@ -1116,7 +1129,19 @@ def _send_verification_email(to_email: str, code: str) -> bool:
             html_content=html,
         )
         resp = SendGridAPIClient(SENDGRID_API_KEY).send(msg)
-        return 200 <= resp.status_code < 300
+        ok = 200 <= resp.status_code < 300
+        msg_id = resp.headers.get("X-Message-Id") if getattr(resp, "headers", None) else None
+        if ok:
+            logger.info(
+                f"SendGrid verification email accepted: to={to_email} from={SENDGRID_SENDER_EMAIL} "
+                f"status={resp.status_code} msg_id={msg_id}"
+            )
+        else:
+            logger.error(
+                f"SendGrid verification email REJECTED: to={to_email} from={SENDGRID_SENDER_EMAIL} "
+                f"status={resp.status_code} body={getattr(resp, 'body', b'')!r}"
+            )
+        return ok
     except Exception as e:
         logger.exception(f"SendGrid verification send failed: {e}")
         return False
@@ -1289,6 +1314,87 @@ async def dev_activate(user: dict = Depends(get_current_user)):
         },
     )
     return {"is_subscribed": True, "subscription_status": "active", "current_period_end": expires}
+
+
+# --- Routes: SendGrid Event Webhook (delivery visibility) ---
+# Captures async delivery events (delivered/bounce/dropped/deferred/spamreport/...)
+# so failures (e.g. Yahoo/Gmail rejecting a free-Gmail From-address for DMARC)
+# are visible instead of silently disappearing. Configure in SendGrid:
+#   Settings -> Mail Settings / Event Webhook -> POST URL =
+#   https://<backend>/api/webhooks/sendgrid  (enable Delivered, Bounced, Dropped,
+#   Deferred, Spam Reports).
+SENDGRID_PROBLEM_EVENTS = {"bounce", "dropped", "deferred", "spamreport", "blocked"}
+
+
+@api.post("/webhooks/sendgrid")
+async def sendgrid_event_webhook(request: Request):
+    try:
+        events = await request.json()
+    except Exception:
+        events = []
+    if isinstance(events, dict):
+        events = [events]
+    if not isinstance(events, list):
+        events = []
+    now = now_utc()
+    docs = []
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+        etype = ev.get("event")
+        email = ev.get("email")
+        reason = ev.get("reason") or ev.get("response") or ev.get("status")
+        if etype in SENDGRID_PROBLEM_EVENTS:
+            logger.warning(
+                f"SendGrid delivery problem: event={etype} to={email} reason={reason!r}"
+            )
+        else:
+            logger.info(f"SendGrid event: {etype} to={email}")
+        docs.append(
+            {
+                "_id": str(uuid.uuid4()),
+                "event": etype,
+                "email": email,
+                "reason": reason,
+                "sg_message_id": ev.get("sg_message_id"),
+                "sg_event_id": ev.get("sg_event_id"),
+                "timestamp": ev.get("timestamp"),
+                "received_at": now.isoformat(),
+            }
+        )
+    if docs:
+        try:
+            await sendgrid_events_col.insert_many(docs)
+            # Keep only the most recent ~2000 events.
+            count = await sendgrid_events_col.count_documents({})
+            if count > 2000:
+                old = (
+                    await sendgrid_events_col.find({}, {"_id": 1})
+                    .sort("received_at", 1)
+                    .limit(count - 2000)
+                    .to_list(length=count - 2000)
+                )
+                if old:
+                    await sendgrid_events_col.delete_many(
+                        {"_id": {"$in": [d["_id"] for d in old]}}
+                    )
+        except Exception:
+            logger.exception("Failed to store SendGrid events")
+    return {"status": "ok", "received": len(docs)}
+
+
+@api.get("/admin/email-events")
+async def admin_email_events(limit: int = 100, user: dict = Depends(require_founder)):
+    """Founder-only: recent SendGrid delivery events, newest first."""
+    limit = max(1, min(limit, 500))
+    rows = (
+        await sendgrid_events_col.find({}, {"_id": 0})
+        .sort("received_at", -1)
+        .limit(limit)
+        .to_list(length=limit)
+    )
+    problems = [r for r in rows if r.get("event") in SENDGRID_PROBLEM_EVENTS]
+    return {"count": len(rows), "problem_count": len(problems), "events": rows}
 
 
 # --- Routes: RevenueCat Webhook ---

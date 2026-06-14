@@ -56,3 +56,9 @@ Verified: backend curl, babel parse, upload screen renders for logged-in user.
 
 ## 2026-02 — Paywall legal links (Apple 3.1.2)
 - Added "Terms of Use · Privacy Policy" links under the Subscribe button on app/paywall.tsx (route to /legal?section=terms / privacy). Verified rendering (testIDs paywall-terms-link / paywall-privacy-link).
+
+## 2026-02 — Email delivery diagnosis + logging
+- ROOT CAUSE (no verification codes to Yahoo/Gmail): SENDGRID_SENDER_EMAIL is kissingerez@gmail.com. SendGrid accepts (202) but Yahoo/Gmail reject/drop mail "From" a free @gmail address sent via SendGrid (DMARC/SPF/DKIM fail). Fix = authenticate domain weclips.app in SendGrid + change sender to support@weclips.app. BLOCKED on user doing SendGrid Domain Authentication (DNS CNAMEs).
+- Added delivery logging: _send_password_reset_email / _send_verification_email now log SendGrid status + msg_id on success and status + body on reject.
+- Added SendGrid Event Webhook: POST /api/webhooks/sendgrid (logs+stores delivered/bounce/dropped/deferred/spamreport, caps 2000) and founder-only GET /api/admin/email-events (newest first, problem_count). Tests: tests/test_email_events.py (3) pass.
+- SendGrid Event Webhook URL to configure: https://weclips.app/api/webhooks/sendgrid (prod) / preview URL for testing.
