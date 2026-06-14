@@ -46,3 +46,10 @@ Verified: backend curl, babel parse, upload screen renders for logged-in user.
 - Android deferred (EXPO_PUBLIC_REVENUECAT_ANDROID_KEY not set yet). Entitlement="premium", monthly package="$rc_monthly".
 - Webhook URL (preview/sandbox): https://weclips-preview.preview.emergentagent.com/api/webhooks/revenuecat ; (prod after deploy): https://weclips.app/api/webhooks/revenuecat ; Authorization header value: "Bearer <REVENUECAT_WEBHOOK_SECRET>".
 - PENDING (user/dashboard): App Store Connect $0.99/mo product, RC store connections + product import, entitlement "premium", offering with $rc_monthly, add webhook in RC dashboard. Real purchases testable only on TestFlight build with sandbox Apple ID. Must Deploy so prod env gets keys + set prod webhook URL.
+
+## 2026-02 — Paywall simplified + real subscriptions + cancel/restore
+- Paywall (app/paywall.tsx) rewritten: smaller (44px price), 3 bullets, less text, pill CTA, short legal. Removed the "Activate 30-day test subscription" button and previewActivate/dev path from UI — real Subscribe + Restore only.
+- Backend dev-activate now returns 403 "disabled in live mode" automatically (real RC keys present), so no test purchases in production.
+- Settings (app/settings.tsx): new MEMBERSHIP section — subscribed users see "Manage subscription / Cancel or change your plan" (opens native manage-subscriptions / store URL via iap.manageSubscriptions); non-subscribers see "Become a member" → paywall. Both states show "Restore purchases" (iap.rcRestore + /subscription/sync + refresh + alert).
+- iap.ts: added rcRestore() and manageSubscriptions() (Purchases.showManageSubscriptions w/ store-URL fallback).
+- Verified on preview: paywall renders w/o test button (restore present); Settings shows Manage subscription for subscribed appletest and Become a member when not subscribed. tsc clean. NOTE: real purchase/restore/manage only function on a device build.

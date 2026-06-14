@@ -1,5 +1,5 @@
 import Constants from "expo-constants";
-import { Platform } from "react-native";
+import { Linking, Platform } from "react-native";
 
 /**
  * Detects whether native in-app purchases (RevenueCat / StoreKit / Play Billing)
@@ -30,5 +30,42 @@ export function loadPurchases(): any | null {
     return mod?.default ?? mod;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Restore prior purchases via RevenueCat.
+ * Returns true/false if it ran (active entitlement?), or null when IAP isn't
+ * available in this environment (e.g. web preview / Expo Go).
+ */
+export async function rcRestore(): Promise<boolean | null> {
+  const Purchases = loadPurchases();
+  if (!Purchases) return null;
+  const info = await Purchases.restorePurchases();
+  return !!info?.entitlements?.active?.[RC_ENTITLEMENT];
+}
+
+/**
+ * Open the OS-native "Manage subscriptions" screen where the user can cancel.
+ * Apps cannot cancel store subscriptions directly — they must deep-link here.
+ */
+export async function manageSubscriptions(): Promise<void> {
+  const Purchases = loadPurchases();
+  if (Purchases?.showManageSubscriptions) {
+    try {
+      await Purchases.showManageSubscriptions();
+      return;
+    } catch {
+      // fall through to store URL
+    }
+  }
+  const url =
+    Platform.OS === "android"
+      ? "https://play.google.com/store/account/subscriptions"
+      : "https://apps.apple.com/account/subscriptions";
+  try {
+    await Linking.openURL(url);
+  } catch {
+    // no-op
   }
 }

@@ -5,7 +5,8 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
-import { confirmDialog } from "@/src/lib/dialogs";
+import { confirmDialog, alertDialog } from "@/src/lib/dialogs";
+import { manageSubscriptions, rcRestore } from "@/src/lib/iap";
 import { colors, radius, spacing, text } from "@/src/theme";
 
 export default function Settings() {
@@ -27,6 +28,27 @@ export default function Settings() {
       if (user?.is_founder) loadFounderSummary();
     }, [loadFounderSummary, user?.is_founder])
   );
+
+  const onRestore = async () => {
+    try {
+      const active = await rcRestore();
+      if (active === null) {
+        await alertDialog("Restore purchases", "Open WeClips on your phone to restore your subscription.");
+        return;
+      }
+      if (active) {
+        try {
+          await api.post("/subscription/sync");
+        } catch {}
+        await refresh();
+        await alertDialog("Restored", "Your membership has been restored.");
+      } else {
+        await alertDialog("No subscription found", "We couldn't find an active subscription for this account.");
+      }
+    } catch (e: any) {
+      await alertDialog("Restore failed", e?.message ?? "Please try again.");
+    }
+  };
 
   const legalItems = [
     { key: "blocked", label: "Blocked accounts", route: "/blocked" },
@@ -103,6 +125,41 @@ export default function Settings() {
             </Pressable>
           ) : null}
 
+          <Text style={styles.sectionLabel}>MEMBERSHIP</Text>
+          {user?.is_subscribed ? (
+            <Pressable
+              testID="settings-manage-subscription"
+              onPress={manageSubscriptions}
+              style={styles.row}
+            >
+              <View style={styles.rowLeft}>
+                <Text style={styles.label}>Manage subscription</Text>
+                <Text style={styles.subLabel}>Cancel or change your plan</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            </Pressable>
+          ) : (
+            <Pressable
+              testID="settings-become-member"
+              onPress={() => router.push("/paywall")}
+              style={styles.row}
+            >
+              <Text style={[styles.label, { color: colors.brand, fontWeight: "800" }]}>
+                Become a member
+              </Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.brand} />
+            </Pressable>
+          )}
+          <Pressable
+            testID="settings-restore-purchases"
+            onPress={onRestore}
+            style={styles.row}
+          >
+            <Text style={styles.label}>Restore purchases</Text>
+            <Ionicons name="refresh" size={18} color={colors.onSurfaceTertiary} />
+          </Pressable>
+
+          <Text style={[styles.sectionLabel, styles.divTop]}>LEGAL</Text>
           {legalItems.map((item) => (
             <Pressable
               key={item.key}
@@ -180,8 +237,18 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingVertical: spacing.md,
   },
-  divTop: { borderTopWidth: 1, borderTopColor: colors.border, marginTop: spacing.sm },
+  divTop: { borderTopWidth: 1, borderTopColor: colors.border, marginTop: spacing.sm, paddingTop: spacing.md },
   label: { color: colors.onSurface, fontSize: text.base },
+  rowLeft: { flex: 1 },
+  subLabel: { color: colors.onSurfaceTertiary, fontSize: text.sm, marginTop: 2 },
+  sectionLabel: {
+    color: colors.onSurfaceTertiary,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1,
+    marginTop: spacing.md,
+    marginBottom: spacing.xs,
+  },
   founderRow: {
     backgroundColor: "#FFF8E1",
     paddingHorizontal: spacing.md,

@@ -7,12 +7,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { api } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
-import {
-  isIapAvailable,
-  loadPurchases,
-  RC_ENTITLEMENT,
-  RC_MONTHLY_PKG_ID,
-} from "@/src/lib/iap";
+import { isIapAvailable, loadPurchases, RC_ENTITLEMENT, RC_MONTHLY_PKG_ID } from "@/src/lib/iap";
 import { colors, radius, spacing, text } from "@/src/theme";
 
 const PAYWALL_IMG =
@@ -29,7 +24,6 @@ export default function Paywall() {
   const [err, setErr] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
 
-  // Load offerings from RevenueCat
   useEffect(() => {
     if (!iapOk) return;
     const Purchases = loadPurchases();
@@ -56,14 +50,12 @@ export default function Paywall() {
     setErr(null);
     setInfo(null);
     if (!iapOk) {
-      setErr(
-        "In-app purchases aren't available in this preview. Build the app via Emergent's Publish flow and run it on a device to subscribe."
-      );
+      setErr("Open WeClips on your phone to subscribe.");
       return;
     }
     const Purchases = loadPurchases();
     if (!Purchases || !pkg) {
-      setErr("RevenueCat isn't ready yet. Make sure your iOS/Android SDK keys are set.");
+      setErr("Store not ready — please try again in a moment.");
       return;
     }
     setLoading(true);
@@ -71,7 +63,6 @@ export default function Paywall() {
       const { customerInfo } = await Purchases.purchasePackage(pkg);
       const active = !!customerInfo?.entitlements?.active?.[RC_ENTITLEMENT];
       if (active) {
-        // Tell backend to sync now; webhook will reconcile shortly.
         try {
           await api.post("/subscription/sync");
         } catch {}
@@ -79,14 +70,10 @@ export default function Paywall() {
         setInfo("You're in! Membership activated.");
         setTimeout(() => router.back(), 800);
       } else {
-        setErr("Purchase didn't unlock membership. Try Restore Purchases.");
+        setErr("Purchase didn't unlock membership. Try Restore.");
       }
     } catch (e: any) {
-      if (e?.userCancelled) {
-        // user cancelled the native sheet - silent
-      } else {
-        setErr(e?.message ?? "Purchase failed");
-      }
+      if (!e?.userCancelled) setErr(e?.message ?? "Purchase failed");
     } finally {
       setLoading(false);
     }
@@ -96,7 +83,7 @@ export default function Paywall() {
     setErr(null);
     setInfo(null);
     if (!iapOk) {
-      setErr("Not available in preview. Build & run on a device.");
+      setErr("Open WeClips on your phone to restore.");
       return;
     }
     const Purchases = loadPurchases();
@@ -122,110 +109,70 @@ export default function Paywall() {
     }
   };
 
-  const previewActivate = async () => {
-    // Preview-only fallback (dev mode) so the rest of the app can be tested.
-    setErr(null);
-    setInfo(null);
-    setLoading(true);
-    try {
-      const r = await api.post<{ is_subscribed: boolean }>("/subscription/dev-activate");
-      if (r.is_subscribed) {
-        await refresh();
-        setInfo("Subscription activated (preview/dev mode).");
-        setTimeout(() => router.back(), 800);
-      }
-    } catch (e: any) {
-      setErr(e?.message ?? "Dev activation failed");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <View style={styles.root}>
       <Image source={{ uri: PAYWALL_IMG }} style={styles.bg} contentFit="cover" />
       <LinearGradient
-        colors={["rgba(255,255,255,0.4)", "rgba(255,255,255,0.92)", "#FFFFFF"]}
-        locations={[0, 0.55, 1]}
+        colors={["rgba(255,255,255,0.35)", "rgba(255,255,255,0.92)", "#FFFFFF"]}
+        locations={[0, 0.5, 1]}
         style={StyleSheet.absoluteFillObject}
       />
       <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
-        <Pressable testID="paywall-close-button" onPress={() => router.back()} style={styles.close} hitSlop={10}>
-          <Ionicons name="close" size={26} color={colors.onSurface} />
+        <Pressable
+          testID="paywall-close-button"
+          onPress={() => router.back()}
+          style={styles.close}
+          hitSlop={10}
+        >
+          <Ionicons name="close" size={24} color={colors.onSurface} />
         </Pressable>
 
         <View style={styles.content}>
-          <Text style={styles.kicker}>BECOME A MEMBER</Text>
+          <Text style={styles.kicker}>WECLIPS MEMBERSHIP</Text>
           <Text style={styles.headline} testID="paywall-headline">
             {priceLabel.split("/")[0].trim()}
             <Text style={styles.headlineSmall}>
-              {priceLabel.includes("/") ? "/" + priceLabel.split("/").slice(1).join("/") : "/month"}
+              {priceLabel.includes("/") ? " /" + priceLabel.split("/").slice(1).join("/") : " /month"}
             </Text>
           </Text>
-          <Text style={styles.sub}>Ad-free. No AI content. Unlimited uploads.</Text>
 
           <View style={styles.bullets}>
-            <Bullet text="Zero ads, ever." />
-            <Bullet text="100% human-made content (AI banned)." />
-            <Bullet text="One audio track per video — no overlapping music." />
-            <Bullet text="No sound-effect overload. Watchable, comprehensible." />
-            <Bullet text="Christian-friendly or neutral. Nothing demonic." />
-            <Bullet text="Upload your own videos." />
-            <Bullet text="Billed by Apple / Google. Cancel anytime." />
+            <Bullet text="Zero ads — ever." />
+            <Bullet text="100% human-made. No AI." />
+            <Bullet text="Unlimited uploads." />
           </View>
-
-          {!iapOk && (
-            <View style={styles.previewBanner} testID="paywall-preview-banner">
-              <Ionicons name="information-circle" size={18} color={colors.onBrandTertiary} />
-              <Text style={styles.previewText}>
-                In-app purchases require a real device build. In this preview you can activate a 30-day
-                test subscription below.
-              </Text>
-            </View>
-          )}
         </View>
 
         <View style={styles.cta}>
-          {err ? <Text style={styles.error} testID="paywall-error">{err}</Text> : null}
-          {info ? <Text style={styles.info} testID="paywall-info">{info}</Text> : null}
+          {err ? (
+            <Text style={styles.error} testID="paywall-error">
+              {err}
+            </Text>
+          ) : null}
+          {info ? (
+            <Text style={styles.info} testID="paywall-info">
+              {info}
+            </Text>
+          ) : null}
 
-          {iapOk ? (
-            <>
-              <Pressable
-                testID="paywall-subscribe-button"
-                onPress={subscribe}
-                disabled={loading}
-                style={({ pressed }) => [styles.primary, (pressed || loading) && { opacity: 0.85 }]}
-              >
-                {loading ? (
-                  <ActivityIndicator color={colors.onBrand} />
-                ) : (
-                  <Text style={styles.primaryText}>Subscribe · {priceLabel}</Text>
-                )}
-              </Pressable>
-              <Pressable testID="paywall-restore-button" onPress={restore} style={styles.secondary}>
-                <Text style={styles.secondaryText}>Restore purchases</Text>
-              </Pressable>
-            </>
-          ) : (
-            <Pressable
-              testID="paywall-preview-activate-button"
-              onPress={previewActivate}
-              disabled={loading}
-              style={({ pressed }) => [styles.primary, (pressed || loading) && { opacity: 0.85 }]}
-            >
-              {loading ? (
-                <ActivityIndicator color={colors.onBrand} />
-              ) : (
-                <Text style={styles.primaryText}>Activate 30-day test subscription</Text>
-              )}
-            </Pressable>
-          )}
+          <Pressable
+            testID="paywall-subscribe-button"
+            onPress={subscribe}
+            disabled={loading}
+            style={({ pressed }) => [styles.primary, (pressed || loading) && { opacity: 0.85 }]}
+          >
+            {loading ? (
+              <ActivityIndicator color={colors.onBrand} />
+            ) : (
+              <Text style={styles.primaryText}>Subscribe · {priceLabel}</Text>
+            )}
+          </Pressable>
 
-          <Text style={styles.legal}>
-            By subscribing, your payment will be charged to your {iapOk ? "App Store / Google Play" : "store"} account.
-            Subscription auto-renews unless cancelled at least 24 hours before the end of the period.
-          </Text>
+          <Pressable testID="paywall-restore-button" onPress={restore} hitSlop={8} style={styles.restore}>
+            <Text style={styles.restoreText}>Restore purchases</Text>
+          </Pressable>
+
+          <Text style={styles.legal}>Auto-renews. Cancel anytime in your store account.</Text>
         </View>
       </SafeAreaView>
     </View>
@@ -234,7 +181,7 @@ export default function Paywall() {
 
 const Bullet: React.FC<{ text: string }> = ({ text }) => (
   <View style={styles.bullet}>
-    <Ionicons name="checkmark-circle" size={18} color={colors.brand} />
+    <Ionicons name="checkmark-circle" size={20} color={colors.brand} />
     <Text style={styles.bulletText}>{text}</Text>
   </View>
 );
@@ -245,29 +192,23 @@ const styles = StyleSheet.create({
   safe: { flex: 1, justifyContent: "space-between", paddingHorizontal: spacing.lg },
   close: { alignSelf: "flex-end", padding: spacing.sm, marginTop: spacing.sm },
   content: { flex: 1, justifyContent: "center" },
-  kicker: { color: colors.brand, fontWeight: "900", letterSpacing: 3, marginBottom: spacing.sm },
-  headline: { color: colors.onSurface, fontSize: 72, fontWeight: "900", lineHeight: 76 },
-  headlineSmall: { fontSize: 24, fontWeight: "700", color: colors.onSurfaceSecondary },
-  sub: { color: colors.onSurfaceSecondary, fontSize: text.lg, marginTop: spacing.sm, marginBottom: spacing.xl },
-  bullets: { gap: spacing.sm, marginTop: spacing.md },
+  kicker: { color: colors.brand, fontWeight: "900", letterSpacing: 2, fontSize: text.sm, marginBottom: spacing.sm },
+  headline: { color: colors.onSurface, fontSize: 44, fontWeight: "900", lineHeight: 48 },
+  headlineSmall: { fontSize: 18, fontWeight: "700", color: colors.onSurfaceSecondary },
+  bullets: { gap: spacing.md, marginTop: spacing.xl },
   bullet: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  bulletText: { color: colors.onSurface, fontSize: text.lg },
-  previewBanner: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: spacing.sm,
-    backgroundColor: colors.brandTertiary,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    marginTop: spacing.lg,
-  },
-  previewText: { color: colors.onBrandTertiary, flex: 1, fontSize: text.base },
+  bulletText: { color: colors.onSurface, fontSize: text.base, fontWeight: "600" },
   cta: { paddingBottom: spacing.md, gap: spacing.sm },
-  primary: { backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.lg, alignItems: "center" },
-  primaryText: { color: colors.onBrand, fontWeight: "900", fontSize: text.lg, letterSpacing: 0.5 },
-  secondary: { paddingVertical: spacing.md, alignItems: "center", borderRadius: radius.md, borderWidth: 1, borderColor: colors.border },
-  secondaryText: { color: colors.onSurface, fontWeight: "700" },
+  primary: {
+    backgroundColor: colors.brand,
+    borderRadius: radius.pill,
+    paddingVertical: spacing.lg,
+    alignItems: "center",
+  },
+  primaryText: { color: colors.onBrand, fontWeight: "900", fontSize: text.base, letterSpacing: 0.3 },
+  restore: { paddingVertical: spacing.sm, alignItems: "center" },
+  restoreText: { color: colors.onSurfaceSecondary, fontWeight: "700", fontSize: text.sm },
   error: { color: colors.error, backgroundColor: colors.errorBg, padding: spacing.md, borderRadius: radius.sm },
   info: { color: colors.onBrand, backgroundColor: colors.success, padding: spacing.md, borderRadius: radius.sm },
-  legal: { color: colors.onSurfaceTertiary, fontSize: 11, marginTop: spacing.sm, textAlign: "center", lineHeight: 16 },
+  legal: { color: colors.onSurfaceTertiary, fontSize: 11, marginTop: spacing.xs, textAlign: "center" },
 });
