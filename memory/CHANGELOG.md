@@ -62,3 +62,9 @@ Verified: backend curl, babel parse, upload screen renders for logged-in user.
 - Added delivery logging: _send_password_reset_email / _send_verification_email now log SendGrid status + msg_id on success and status + body on reject.
 - Added SendGrid Event Webhook: POST /api/webhooks/sendgrid (logs+stores delivered/bounce/dropped/deferred/spamreport, caps 2000) and founder-only GET /api/admin/email-events (newest first, problem_count). Tests: tests/test_email_events.py (3) pass.
 - SendGrid Event Webhook URL to configure: https://weclips.app/api/webhooks/sendgrid (prod) / preview URL for testing.
+
+## 2026-02 — FIX email delivery: sender -> support@weclips.app
+- weclips.app domain authentication is Verified in SendGrid (em8499.weclips.app). Switched SENDGRID_SENDER_EMAIL from kissingerez@gmail.com -> support@weclips.app. Verified SendGrid accepts From support@weclips.app (202) and signup flow logs from=support@weclips.app status=202.
+- This resolves Yahoo/Gmail dropping codes (now DKIM/SPF/DMARC-aligned via authenticated domain).
+- User already created SendGrid Event Webhook -> https://weclips.app/api/webhooks/sendgrid (Enabled; Bounced/Dropped/Delivered/Spam) — activates after Deploy.
+- Requires Deploy for production (weclips.app) to use the new sender.
