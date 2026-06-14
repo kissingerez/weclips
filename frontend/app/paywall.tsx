@@ -139,7 +139,7 @@ export default function Paywall() {
           <View style={styles.bullets}>
             <Bullet text="Zero ads — ever." />
             <Bullet text="100% human-made. No AI." />
-            <Bullet text="Unlimited uploads." />
+            <Bullet text="Family-friendly." />
           </View>
         </View>
 
