@@ -38,3 +38,11 @@ Verified: backend curl, babel parse, upload screen renders for logged-in user.
 - Removed the Search tab from the bottom bar (href:null in (tabs)/_layout.tsx; route still reachable).
 - Added a search bar at the top of Discover (home.tsx), above the first video (testID home-search-input). Submitting routes to /search with the query.
 - Search screen (search.tsx) now reads a `q` param and auto-runs the search; onSearch accepts an override term.
+
+## 2026-02 — Wire up RevenueCat subscriptions (iOS)
+- Code was already complete & matches RC v10 best practices (configure with appUserID=user.id, getOfferings, purchasePackage, restorePurchases, entitlements.active["premium"]; backend /subscription/sync REST verify + /webhooks/revenuecat).
+- Wired keys: frontend EXPO_PUBLIC_REVENUECAT_IOS_KEY (appl_...) + EXPO_PUBLIC_REVENUECAT_ENTITLEMENT_ID=premium; backend REVENUECAT_REST_API_KEY (sk_...) + generated REVENUECAT_WEBHOOK_SECRET.
+- Verified: REST key authorized against RevenueCat (HTTP 201); webhook returns 401 without/with wrong auth and 200 with correct Bearer secret.
+- Android deferred (EXPO_PUBLIC_REVENUECAT_ANDROID_KEY not set yet). Entitlement="premium", monthly package="$rc_monthly".
+- Webhook URL (preview/sandbox): https://weclips-preview.preview.emergentagent.com/api/webhooks/revenuecat ; (prod after deploy): https://weclips.app/api/webhooks/revenuecat ; Authorization header value: "Bearer <REVENUECAT_WEBHOOK_SECRET>".
+- PENDING (user/dashboard): App Store Connect $0.99/mo product, RC store connections + product import, entitlement "premium", offering with $rc_monthly, add webhook in RC dashboard. Real purchases testable only on TestFlight build with sandbox Apple ID. Must Deploy so prod env gets keys + set prod webhook URL.
