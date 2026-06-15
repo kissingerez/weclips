@@ -68,3 +68,8 @@ Verified: backend curl, babel parse, upload screen renders for logged-in user.
 - This resolves Yahoo/Gmail dropping codes (now DKIM/SPF/DMARC-aligned via authenticated domain).
 - User already created SendGrid Event Webhook -> https://weclips.app/api/webhooks/sendgrid (Enabled; Bounced/Dropped/Delivered/Spam) — activates after Deploy.
 - Requires Deploy for production (weclips.app) to use the new sender.
+
+## 2026-02 — Deployment fix (recurring) + rotated ASC key validated
+- .gitignore had re-acquired .env/.env.*/*.env (lines 86-88) — REMOVED again; git check-ignore confirms backend/.env + frontend/.env are tracked. deployment_agent now: PASS (no blockers; secrets in .env, URLs/ports via env, CORS ok, supervisor ok).
+- NOTE: the .env .gitignore block reappeared once between sessions; if a future deploy fails on missing env, re-check /app/.gitignore for .env lines.
+- Rotated App Store Connect API key validated: Key ID 43795BGQ82 + Issuer edddc4ee-f818-4767-a7c6-faaffc385f85 -> Apple API 200, app WeClips (bundle app.emergent.adfreevideo12afd3895b). Old key K4W86982D9 user revoked. Key goes in RevenueCat dashboard (not backend).
