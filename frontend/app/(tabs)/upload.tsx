@@ -754,7 +754,7 @@ export default function Upload() {
               <Text style={styles.policyTitle}>I confirm this video follows the WeClips policy:</Text>
               <Text style={styles.policyRule}>• Not AI-generated</Text>
               <Text style={styles.policyRule}>• Only one music/audio track at a time (no two songs overlapping)</Text>
-              <Text style={styles.policyRule}>• No excessive sound effects</Text>
+              <Text style={styles.policyRule}>• No excessive audio/video effects</Text>
               <Text style={styles.policyRule}>
                 • Christian-friendly or neutral content only — nothing demonic. Anime & cartoons are welcome
                 if they don&apos;t advocate anti-Christian beliefs.

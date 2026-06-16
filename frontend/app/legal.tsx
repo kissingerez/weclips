@@ -70,7 +70,7 @@ const SECTIONS: Record<string, { title: string; body: string[] }> = {
       `WeClips exists for calm, comprehensible, human-made video. The following content is not allowed:`,
       `• AI-generated content of any kind`,
       `• Videos with two or more music tracks layered at once`,
-      `• Videos with excessive sound effects (anything intended to overstimulate)`,
+      `• Videos with excessive audio/video effects (anything intended to overstimulate)`,
       `• Demonic, occult, or content that promotes anti-Christian beliefs`,
       `• Sexual content, gratuitous violence, harassment, hate speech, doxxing, illegal activity, or content that exploits minors`,
       `• Content that infringes copyright, trademark, or other intellectual-property rights — only upload material you own or are licensed to use`,
