@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { api } from "./api";
 import { tokenStorage } from "./tokenStorage";
+import { rcLogout } from "./iap";
 
 export type Me = {
   id: string;
@@ -106,6 +107,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
+    // Detach RevenueCat first so the next account on this device cannot inherit
+    // the prior user's subscription state.
+    await rcLogout();
     await tokenStorage.clear();
     setUser(null);
   };

@@ -1,34 +1,25 @@
 import { useEffect } from "react";
-import { Platform } from "react-native";
 import { useAuth } from "./auth";
-import { isIapAvailable, loadPurchases, RC_IOS_KEY, RC_ANDROID_KEY } from "./iap";
+import { rcConfigureOnce, rcLogin } from "./iap";
 
 /**
- * Configures RevenueCat once per process, tying the RC `appUserId` to the
- * authenticated JWT user id. No-ops on web / Expo Go.
+ * Configures RevenueCat exactly once per process (anonymously), then ties the
+ * RevenueCat session to the authenticated JWT user id via `Purchases.logIn`
+ * whenever a user signs in. Sign-out is handled in `auth.tsx` via `rcLogout`.
+ * No-ops on web / Expo Go.
  */
 export function useRevenueCatConfig() {
   const { user } = useAuth();
 
+  // Configure once on mount.
   useEffect(() => {
-    if (!user) return;
-    if (!isIapAvailable()) return;
-    const Purchases = loadPurchases();
-    if (!Purchases) return;
+    rcConfigureOnce();
+  }, []);
 
-    const apiKey = Platform.OS === "ios" ? RC_IOS_KEY : RC_ANDROID_KEY;
-    if (!apiKey) {
-      console.warn(
-        "[RevenueCat] No SDK key configured for this platform. Set EXPO_PUBLIC_REVENUECAT_IOS_KEY / EXPO_PUBLIC_REVENUECAT_ANDROID_KEY."
-      );
-      return;
-    }
-
-    try {
-      Purchases.setLogLevel?.("WARN");
-      Purchases.configure({ apiKey, appUserID: user.id });
-    } catch (e) {
-      console.warn("[RevenueCat] configure failed", e);
-    }
+  // Attach identity whenever a user becomes available.
+  useEffect(() => {
+    if (!user?.id) return;
+    rcConfigureOnce(); // safe no-op if already configured
+    void rcLogin(user.id);
   }, [user?.id]);
 }

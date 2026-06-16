@@ -79,3 +79,11 @@ Verified: backend curl, babel parse, upload screen renders for logged-in user.
 - Added _subscription_active(user): subscribed AND a FUTURE subscription_expires_at (handles datetime/ISO/naive). Applied to require_subscriber, require_subscriber_flexible, the upload gate, user_to_public.is_subscribed, and /subscription/status. No grant without a future expiry = access. Real RC subs keep a future expiry via purchase sync + renewal/grace webhook, so they're unaffected.
 - One-time cleanup: reset ALL 26 test subscriptions (incl. founders, per owner's instruction "no one gets free, not even me") -> is_subscribed=false, status=none, expires=null. is_subscribed=true count now 0.
 - dev-activate already 403 in live mode -> no new freebies. Tests: test_subscription_expiry.py (6) + updated test_preview_and_profile.py (now asserts non-subscriber stream is 402). 12 passed. Verified live: appletest now 402 on stream-url, guest preview-url still 200.
+
+## 2026-02 — RevenueCat per-account identity (logIn/logOut) + pinned iOS bundle id
+- Problem: useRevenueCat.ts called Purchases.configure({ apiKey, appUserID: user.id }) on every user change. Configure must run once; identity must use logIn/logOut. Risk: cross-account subscription sharing on shared devices.
+- iap.ts: added rcConfigureOnce() (module-level guard, anonymous configure), rcLogin(userId) -> Purchases.logIn, rcLogout() -> Purchases.logOut. All safe no-ops on web / Expo Go.
+- useRevenueCat.ts: configure once on mount; call rcLogin(user.id) whenever a user becomes available.
+- auth.tsx: logout() now calls rcLogout() before clearing token so the next account can't inherit the prior user's subscription.
+- app.json: pinned ios.bundleIdentifier = app.emergent.adfreevideo12afd3895b so it can't drift from RevenueCat.
+- Lint clean; web smoke test boots (native-only paths no-op on web). Reminder: RevenueCat Restore Behavior should be "Transfer to new App User ID" in the dashboard.

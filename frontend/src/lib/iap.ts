@@ -33,6 +33,63 @@ export function loadPurchases(): any | null {
   }
 }
 
+let rcConfigured = false;
+
+/**
+ * Configure RevenueCat exactly ONCE per process, anonymously (no appUserID).
+ * Identity is attached later via rcLogin(). Safe no-op on web / Expo Go.
+ */
+export function rcConfigureOnce(): void {
+  if (rcConfigured) return;
+  const Purchases = loadPurchases();
+  if (!Purchases) return;
+
+  const apiKey = Platform.OS === "ios" ? RC_IOS_KEY : RC_ANDROID_KEY;
+  if (!apiKey) {
+    console.warn(
+      "[RevenueCat] No SDK key configured for this platform. Set EXPO_PUBLIC_REVENUECAT_IOS_KEY / EXPO_PUBLIC_REVENUECAT_ANDROID_KEY."
+    );
+    return;
+  }
+
+  try {
+    Purchases.setLogLevel?.("WARN");
+    Purchases.configure({ apiKey });
+    rcConfigured = true;
+  } catch (e) {
+    console.warn("[RevenueCat] configure failed", e);
+  }
+}
+
+/**
+ * Tie the current RevenueCat session to an authenticated user id so a
+ * subscription is strictly bound to that account. No-op on web / Expo Go.
+ */
+export async function rcLogin(userId: string): Promise<void> {
+  if (!userId) return;
+  const Purchases = loadPurchases();
+  if (!Purchases) return;
+  try {
+    await Purchases.logIn(userId);
+  } catch (e) {
+    console.warn("[RevenueCat] logIn failed", e);
+  }
+}
+
+/**
+ * Detach the device from the current user (returns RevenueCat to an anonymous
+ * id) so the next account that signs in does not inherit this subscription.
+ */
+export async function rcLogout(): Promise<void> {
+  const Purchases = loadPurchases();
+  if (!Purchases) return;
+  try {
+    await Purchases.logOut();
+  } catch (e) {
+    console.warn("[RevenueCat] logOut failed", e);
+  }
+}
+
 /**
  * Restore prior purchases via RevenueCat.
  * Returns true/false if it ran (active entitlement?), or null when IAP isn't
