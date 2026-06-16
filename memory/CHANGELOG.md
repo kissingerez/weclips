@@ -87,3 +87,8 @@ Verified: backend curl, babel parse, upload screen renders for logged-in user.
 - auth.tsx: logout() now calls rcLogout() before clearing token so the next account can't inherit the prior user's subscription.
 - app.json: pinned ios.bundleIdentifier = app.emergent.adfreevideo12afd3895b so it can't drift from RevenueCat.
 - Lint clean; web smoke test boots (native-only paths no-op on web). Reminder: RevenueCat Restore Behavior should be "Transfer to new App User ID" in the dashboard.
+
+## 2026-02 — Android (Play Store) groundwork + Google review account + delete-account page
+- app.json: pinned android.package = app.emergent.adfreevideo12afd3895b (matches iOS bundle id) for RevenueCat/Play consistency. Code already Android-ready (rcConfigureOnce picks EXPO_PUBLIC_REVENUECAT_ANDROID_KEY via Platform.OS). Awaiting user's goog_ SDK key + Play product/service-account setup.
+- Created Google Play review demo account: googletest@weclips.app / GoogleReview2026! (@googlereview), email_verified, active sub until 2027-06-08 (bounded, complies with no-free-forever). Script: backend/scripts/create_google_review_account.py. Verified live: login -> JWT, /auth/me is_subscribed=true. Saved to test_credentials.md.
+- Added public account-deletion page (Apple 5.1.1(v) + Google Play Data deletion req): _DELETE_ACCOUNT_BODY with routes /api/legal/delete-account and /delete-account. Verified /api/legal/delete-account returns the page (200). NOTE: in this env, non-/api short paths are served by the frontend SPA, so the STORE-FACING URL must be https://weclips.app/api/legal/delete-account (same applies to /api/legal/privacy + /api/legal/terms for reliability).

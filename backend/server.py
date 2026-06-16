@@ -3714,6 +3714,44 @@ _SUPPORT_BODY = """
 <p>Include your iPhone/Android model, the version of the app, your username, and a short description of what happened.</p>
 """
 
+_DELETE_ACCOUNT_BODY = """
+<p>This page explains how to delete your <b>WeClips</b> account and the data we
+remove when you do. You can request deletion directly inside the app, or contact
+us by email if you can't access the app.</p>
+
+<h2>Delete from inside the app</h2>
+<ol>
+  <li>Open <b>WeClips</b> and sign in.</li>
+  <li>Go to the <b>Profile</b> tab.</li>
+  <li>Scroll to the bottom and tap <b>Delete account</b>.</li>
+  <li>Confirm. Your account is immediately deactivated.</li>
+</ol>
+
+<h2>Can't access the app?</h2>
+<p>Email <a href="mailto:support@weclips.app">support@weclips.app</a> from the
+address on your account with the subject "Delete my account". We'll verify
+ownership and process the deletion for you.</p>
+
+<h2>30-day grace period</h2>
+<p>Deletion is reversible for <b>30 days</b>: sign back in within that window and
+tap <b>Restore</b> to cancel it. After 30 days the deletion becomes permanent and
+cannot be undone.</p>
+
+<h2>What gets deleted</h2>
+<p>When deletion becomes permanent we erase your account and the personal data
+tied to it, including:</p>
+<ul>
+  <li>Your profile (email, username, display name, bio, avatar).</li>
+  <li>Your uploaded videos and their thumbnails.</li>
+  <li>Your follows, likes, comments, and reports.</li>
+</ul>
+<p>Active subscriptions are billed by Apple App Store or Google Play, not by us —
+deleting your account does not cancel a store subscription. Cancel it separately
+in your device's subscription settings (see our <a href="/support">Support</a>
+page). We may retain limited records required for legal, tax, or fraud-prevention
+purposes; backups are rotated and overwritten within 30 days.</p>
+"""
+
 
 @app.get("/api/legal/privacy", response_class=HTMLResponse, include_in_schema=False)
 async def legal_privacy_page():
@@ -3730,6 +3768,11 @@ async def legal_support_page():
     return HTMLResponse(_legal_page("Support", _SUPPORT_BODY))
 
 
+@app.get("/api/legal/delete-account", response_class=HTMLResponse, include_in_schema=False)
+async def legal_delete_account_page():
+    return HTMLResponse(_legal_page("Delete Your Account", _DELETE_ACCOUNT_BODY))
+
+
 # Convenience short URLs without the /api prefix
 @app.get("/privacy", response_class=HTMLResponse, include_in_schema=False)
 async def legal_privacy_short():
@@ -3744,6 +3787,11 @@ async def legal_terms_short():
 @app.get("/support", response_class=HTMLResponse, include_in_schema=False)
 async def legal_support_short():
     return HTMLResponse(_legal_page("Support", _SUPPORT_BODY))
+
+
+@app.get("/delete-account", response_class=HTMLResponse, include_in_schema=False)
+async def legal_delete_account_short():
+    return HTMLResponse(_legal_page("Delete Your Account", _DELETE_ACCOUNT_BODY))
 
 
 # Public OG-preview page for sharing a specific video. Renders an HTML page
