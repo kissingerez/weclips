@@ -37,7 +37,10 @@ def test_public_user_includes_following_count():
     assert "followers" in data and isinstance(data["followers"], int)
 
 
-def test_subscriber_full_stream_still_works():
+def test_nonsubscriber_stream_is_gated():
+    # After the test-subscription cleanup, appletest is no longer subscribed,
+    # so the full stream must be gated (402) — this proves nobody keeps premium
+    # for free. Guests are likewise gated (401).
     login = requests.post(
         f"{API}/auth/login",
         json={"email": APPLE_EMAIL, "password": APPLE_PASSWORD},
@@ -51,5 +54,4 @@ def test_subscriber_full_stream_still_works():
         headers={"Authorization": f"Bearer {tok}"},
         timeout=30,
     )
-    assert r.status_code == 200, f"{r.status_code} {r.text[:200]}"
-    assert r.json().get("stream_url")
+    assert r.status_code == 402, f"expected 402 (gated), got {r.status_code} {r.text[:200]}"

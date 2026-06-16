@@ -73,3 +73,9 @@ Verified: backend curl, babel parse, upload screen renders for logged-in user.
 - .gitignore had re-acquired .env/.env.*/*.env (lines 86-88) — REMOVED again; git check-ignore confirms backend/.env + frontend/.env are tracked. deployment_agent now: PASS (no blockers; secrets in .env, URLs/ports via env, CORS ok, supervisor ok).
 - NOTE: the .env .gitignore block reappeared once between sessions; if a future deploy fails on missing env, re-check /app/.gitignore for .env lines.
 - Rotated App Store Connect API key validated: Key ID 43795BGQ82 + Issuer edddc4ee-f818-4767-a7c6-faaffc385f85 -> Apple API 200, app WeClips (bundle app.emergent.adfreevideo12afd3895b). Old key K4W86982D9 user revoked. Key goes in RevenueCat dashboard (not backend).
+
+## 2026-02 — No free-forever premium (test-sub cleanup + expiry backstop)
+- Q: would test-subscription users keep premium forever after launch? YES (bug): require_subscriber checked only the is_subscribed boolean, ignored subscription_expires_at, and the app never re-synced with RevenueCat on launch — so dev/test grants never expired.
+- Added _subscription_active(user): subscribed AND a FUTURE subscription_expires_at (handles datetime/ISO/naive). Applied to require_subscriber, require_subscriber_flexible, the upload gate, user_to_public.is_subscribed, and /subscription/status. No grant without a future expiry = access. Real RC subs keep a future expiry via purchase sync + renewal/grace webhook, so they're unaffected.
+- One-time cleanup: reset ALL 26 test subscriptions (incl. founders, per owner's instruction "no one gets free, not even me") -> is_subscribed=false, status=none, expires=null. is_subscribed=true count now 0.
+- dev-activate already 403 in live mode -> no new freebies. Tests: test_subscription_expiry.py (6) + updated test_preview_and_profile.py (now asserts non-subscriber stream is 402). 12 passed. Verified live: appletest now 402 on stream-url, guest preview-url still 200.

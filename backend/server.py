@@ -395,8 +395,31 @@ async def get_current_user_flexible(
     return user
 
 
-async def require_subscriber(user: dict = Depends(get_current_user)) -> dict:
+def _subscription_active(user: dict) -> bool:
+    """True only if the user is marked subscribed AND the subscription has not
+    lapsed. Real RevenueCat subscribers always carry a future expiry (the
+    purchase sync + renewal webhook keep it current, including Apple billing
+    grace). Any grant without a future expiry is treated as expired, so nobody
+    keeps premium forever."""
     if not user.get("is_subscribed", False):
+        return False
+    exp = user.get("subscription_expires_at")
+    if not exp:
+        return False
+    if isinstance(exp, str):
+        try:
+            exp = datetime.fromisoformat(exp.replace("Z", "+00:00"))
+        except Exception:
+            return False
+    if not isinstance(exp, datetime):
+        return False
+    if exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    return exp > now_utc()
+
+
+async def require_subscriber(user: dict = Depends(get_current_user)) -> dict:
+    if not _subscription_active(user):
         raise HTTPException(status_code=402, detail="Active subscription required")
     return user
 
@@ -410,7 +433,7 @@ async def require_founder(user: dict = Depends(get_current_user)) -> dict:
 async def require_subscriber_flexible(
     user: dict = Depends(get_current_user_flexible),
 ) -> dict:
-    if not user.get("is_subscribed", False):
+    if not _subscription_active(user):
         raise HTTPException(status_code=402, detail="Active subscription required")
     return user
 
@@ -452,7 +475,7 @@ def user_to_public(u: dict, *, followers: int = 0, following: int = 0) -> UserPu
         followers_hidden=bool(u.get("followers_hidden", False)),
         followers=followers,
         following=following,
-        is_subscribed=bool(u.get("is_subscribed", False)),
+        is_subscribed=_subscription_active(u),
         is_founder=bool(u.get("is_founder", False)),
         email_public=bool(u.get("email_public", False)),
         subscription_status=u.get("subscription_status", "none"),
@@ -1239,7 +1262,7 @@ async def resend_verification(body: ResendVerificationReq):
 @api.get("/subscription/status")
 async def subscription_status(user: dict = Depends(get_current_user)):
     return {
-        "is_subscribed": bool(user.get("is_subscribed", False)),
+        "is_subscribed": _subscription_active(user),
         "subscription_status": user.get("subscription_status", "none"),
         "current_period_end": user.get("subscription_expires_at"),
     }
@@ -1862,7 +1885,7 @@ async def upload_video(
 ):
     if not no_ai_confirmed:
         raise HTTPException(status_code=400, detail="You must confirm the WeClips content policy")
-    if not user.get("is_subscribed", False):
+    if not _subscription_active(user):
         raise HTTPException(status_code=402, detail="Active subscription required to upload")
 
     video_id = str(uuid.uuid4())
