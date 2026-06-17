@@ -13,7 +13,7 @@
       "bundleIdentifier": "app.emergent.adfreevideo12afd3895b"
     },
     "android": {
-      "package": "app.emergent.adfreevideo12afd3895b",
+      "package": "com.weclips.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#000"
