@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -144,33 +144,54 @@ export default function Paywall() {
         </View>
 
         <View style={styles.cta}>
-          {err ? (
-            <Text style={styles.error} testID="paywall-error">
-              {err}
-            </Text>
-          ) : null}
-          {info ? (
-            <Text style={styles.info} testID="paywall-info">
-              {info}
-            </Text>
-          ) : null}
+          {Platform.OS === "web" ? (
+            <>
+              <View style={styles.comingSoon} testID="paywall-web-coming-soon">
+                <Ionicons name="phone-portrait-outline" size={22} color={colors.brand} />
+                <Text style={styles.comingSoonText}>
+                  Payments through this website coming soon! Please subscribe on your
+                  mobile device and then come back.
+                </Text>
+              </View>
+              <Pressable
+                testID="paywall-web-close-button"
+                onPress={() => router.back()}
+                style={({ pressed }) => [styles.primary, pressed && { opacity: 0.85 }]}
+              >
+                <Text style={styles.primaryText}>Got it</Text>
+              </Pressable>
+            </>
+          ) : (
+            <>
+              {err ? (
+                <Text style={styles.error} testID="paywall-error">
+                  {err}
+                </Text>
+              ) : null}
+              {info ? (
+                <Text style={styles.info} testID="paywall-info">
+                  {info}
+                </Text>
+              ) : null}
 
-          <Pressable
-            testID="paywall-subscribe-button"
-            onPress={subscribe}
-            disabled={loading}
-            style={({ pressed }) => [styles.primary, (pressed || loading) && { opacity: 0.85 }]}
-          >
-            {loading ? (
-              <ActivityIndicator color={colors.onBrand} />
-            ) : (
-              <Text style={styles.primaryText}>Subscribe · {priceLabel}</Text>
-            )}
-          </Pressable>
+              <Pressable
+                testID="paywall-subscribe-button"
+                onPress={subscribe}
+                disabled={loading}
+                style={({ pressed }) => [styles.primary, (pressed || loading) && { opacity: 0.85 }]}
+              >
+                {loading ? (
+                  <ActivityIndicator color={colors.onBrand} />
+                ) : (
+                  <Text style={styles.primaryText}>Subscribe · {priceLabel}</Text>
+                )}
+              </Pressable>
 
-          <Pressable testID="paywall-restore-button" onPress={restore} hitSlop={8} style={styles.restore}>
-            <Text style={styles.restoreText}>Restore purchases</Text>
-          </Pressable>
+              <Pressable testID="paywall-restore-button" onPress={restore} hitSlop={8} style={styles.restore}>
+                <Text style={styles.restoreText}>Restore purchases</Text>
+              </Pressable>
+            </>
+          )}
 
           <Text style={styles.legal}>Auto-renews. Cancel anytime in your store account.</Text>
           <View style={styles.legalLinks}>
@@ -224,6 +245,16 @@ const styles = StyleSheet.create({
   },
   primaryText: { color: colors.onBrand, fontWeight: "900", fontSize: text.base, letterSpacing: 0.3 },
   restore: { paddingVertical: spacing.sm, alignItems: "center" },
+  comingSoon: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: "rgba(0,0,0,0.05)",
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  comingSoonText: { flex: 1, color: colors.onSurface, fontSize: text.sm, fontWeight: "700", lineHeight: 20 },
   restoreText: { color: colors.onSurfaceSecondary, fontWeight: "700", fontSize: text.sm },
   error: { color: colors.error, backgroundColor: colors.errorBg, padding: spacing.md, borderRadius: radius.sm },
   info: { color: colors.onBrand, backgroundColor: colors.success, padding: spacing.md, borderRadius: radius.sm },

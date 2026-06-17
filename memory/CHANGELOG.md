@@ -100,3 +100,6 @@ Verified: backend curl, babel parse, upload screen renders for logged-in user.
 - Bug fixes during testing: usePush web guard for getLastNotificationResponseAsync; settings pushOn re-syncs after auth hydration; FIXED pre-existing follow-notification upsert crash (immutable _id moved to $setOnInsert) so in-app follow notifications now persist.
 - Tested: backend 10/10 (test_push_notifications.py). register-push returns 500 with placeholder key (EXPECTED; resolves at deploy when EMERGENT_PUSH_KEY injected). Native push delivery requires a device build (TestFlight/Play closed testing) — cannot be verified in web preview.
 - DEPLOY/BUILD NOTE: Android needs google-services.json (Firebase) added (app.json android.googleServicesFile) before push works on Android; iOS APNs handled by the build pipeline. EMERGENT_PUSH_KEY is auto-injected at deploy.
+
+## 2026-02 — Web paywall gated ("coming soon")
+- paywall.tsx: on Platform.OS === "web", replaced Subscribe/Restore actions with a notice "Payments through this website coming soon! Please subscribe on your mobile device and then come back." + a "Got it" (close) button (testID paywall-web-coming-soon / paywall-web-close-button). Mobile (iOS/Android) keeps the full RevenueCat subscribe + restore flow unchanged. Verified on web via screenshot.
