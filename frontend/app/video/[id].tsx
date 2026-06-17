@@ -17,6 +17,7 @@ import { useVideoPlayer, VideoView } from "expo-video";
 import { Ionicons } from "@expo/vector-icons";
 import { api, API_BASE, ApiError } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
+import { hasPremiumAccess } from "@/src/lib/access";
 import { shareVideo } from "@/src/components/VideoCard";
 import { tokenStorage } from "@/src/lib/tokenStorage";
 import { alertDialog, confirmDialog, promptDialog } from "@/src/lib/dialogs";
@@ -70,7 +71,7 @@ export default function VideoScreen() {
       if (!id || authLoading) return;
       try {
         const tok = await tokenStorage.get();
-        if (user?.is_subscribed) {
+        if (hasPremiumAccess(user)) {
           // Members stream the full video.
           const resp = await api.get<{ stream_url: string; legacy?: boolean }>(
             `/videos/${id}/stream-url`

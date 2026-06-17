@@ -76,6 +76,13 @@ R2_PRESIGN_STREAM_TTL = int(os.environ.get("R2_PRESIGN_STREAM_TTL", "3600"))
 # Free teaser length (seconds) guests / non-subscribers can watch before the paywall.
 VIDEO_PREVIEW_SECONDS = int(os.environ.get("VIDEO_PREVIEW_SECONDS", "15"))
 
+# TEMPORARY: Android in-app purchases cannot be exercised during Google Play's
+# 14-day closed-testing review, which would otherwise leave the app unusable for
+# testers. While this flag is on, Android clients get full access WITHOUT writing
+# any subscription to the database — flip ANDROID_FREE_ACCESS to "false" (or remove)
+# once Android billing is live to instantly restore the paywall. iOS/web unaffected.
+ANDROID_FREE_ACCESS = os.environ.get("ANDROID_FREE_ACCESS", "true").lower() == "true"
+
 # --- Emergent managed push notifications (SuprSend relay) ---
 # EMERGENT_PUSH_KEY is injected by the deployment pipeline at build time; locally
 # it stays "placeholder" (pushes no-op until deployed). Only the backend ever
@@ -432,8 +439,20 @@ def _subscription_active(user: dict) -> bool:
     return exp > now_utc()
 
 
-async def require_subscriber(user: dict = Depends(get_current_user)) -> dict:
-    if not _subscription_active(user):
+def _platform_bypass(request: Request) -> bool:
+    """TEMPORARY Android access bypass for Google Play closed testing. Returns
+    True only when ANDROID_FREE_ACCESS is on AND the request comes from an Android
+    client (X-Client-Platform header). Writes nothing to the DB; flip the env flag
+    off to remove. iOS and web are never affected."""
+    if not ANDROID_FREE_ACCESS:
+        return False
+    return request.headers.get("x-client-platform", "").lower() == "android"
+
+
+async def require_subscriber(
+    request: Request, user: dict = Depends(get_current_user)
+) -> dict:
+    if not _subscription_active(user) and not _platform_bypass(request):
         raise HTTPException(status_code=402, detail="Active subscription required")
     return user
 
@@ -445,9 +464,9 @@ async def require_founder(user: dict = Depends(get_current_user)) -> dict:
 
 
 async def require_subscriber_flexible(
-    user: dict = Depends(get_current_user_flexible),
+    request: Request, user: dict = Depends(get_current_user_flexible),
 ) -> dict:
-    if not _subscription_active(user):
+    if not _subscription_active(user) and not _platform_bypass(request):
         raise HTTPException(status_code=402, detail="Active subscription required")
     return user
 

@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import { tokenStorage } from "./tokenStorage";
 
 const BASE = process.env.EXPO_PUBLIC_BACKEND_URL || "";
@@ -15,6 +16,7 @@ export class ApiError extends Error {
 async function request<T>(path: string, init: RequestInit & { auth?: boolean } = {}): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    "X-Client-Platform": Platform.OS,
     ...(init.headers as Record<string, string> | undefined),
   };
   if (init.auth !== false) {

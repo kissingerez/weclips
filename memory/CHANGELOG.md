@@ -103,3 +103,11 @@ Verified: backend curl, babel parse, upload screen renders for logged-in user.
 
 ## 2026-02 — Web paywall gated ("coming soon")
 - paywall.tsx: on Platform.OS === "web", replaced Subscribe/Restore actions with a notice "Payments through this website coming soon! Please subscribe on your mobile device and then come back." + a "Got it" (close) button (testID paywall-web-coming-soon / paywall-web-close-button). Mobile (iOS/Android) keeps the full RevenueCat subscribe + restore flow unchanged. Verified on web via screenshot.
+
+## 2026-02 — TEMPORARY Android paywall bypass (Google Play closed-testing)
+- Why: Google won't allow IAP purchases during the 14-day closed-testing review, leaving Android testers unable to subscribe and the app unusable.
+- Backend: env ANDROID_FREE_ACCESS (default "true"). _platform_bypass(request) grants access when flag on AND request header X-Client-Platform == "android". require_subscriber + require_subscriber_flexible honor it. NO DB writes — flip ANDROID_FREE_ACCESS=false to instantly restore the paywall. iOS/web untouched.
+- Frontend: api.ts sends X-Client-Platform: Platform.OS on every request. New src/lib/access.ts -> hasPremiumAccess(user) = is_subscribed OR (Android && ANDROID_FREE_ACCESS=true). Gates updated to use it: VideoCard (locked), video/[id] (stream vs preview), upload.tsx (3 spots). profile/settings keep real is_subscribed for status display.
+- Verified (curl, non-sub user): no header -> 402; X-Client-Platform: android -> 200; ios -> 402. Lint clean.
+- TO REVERT when Android billing is live: set ANDROID_FREE_ACCESS=false in backend/.env AND ANDROID_FREE_ACCESS=false in src/lib/access.ts, then redeploy + rebuild.
+- Test artifact: backend/scripts/create_nonsub_test_user.py (nosubtest@weclips.app / NoSub2026!, non-subscribed, verified).

@@ -19,6 +19,7 @@ import * as Haptics from "expo-haptics";
 import { createUploadTask, FileSystemUploadType } from "expo-file-system/legacy";
 import { useRouter } from "expo-router";
 import { useAuth } from "@/src/lib/auth";
+import { hasPremiumAccess } from "@/src/lib/access";
 import { useUploadProgress } from "@/src/lib/uploadProgress";
 import { SignInWall } from "@/src/components/SignInWall";
 import { Toast } from "@/src/components/Toast";
@@ -285,7 +286,7 @@ export default function Upload() {
     setErr(null);
     setMsg(null);
     const sz = (asset as any).fileSize ?? 0;
-    if (user?.is_subscribed && sz <= MULTIPART_THRESHOLD) {
+    if (hasPremiumAccess(user) && sz <= MULTIPART_THRESHOLD) {
       stageUpload(asset.uri, asset.mimeType || "video/mp4");
     }
   };
@@ -484,7 +485,7 @@ export default function Upload() {
     if (!title.trim()) return setErr("Title is required.");
     if (!pickedUri) return setErr("Select a video first.");
     if (!noAi) return setErr("You must confirm the content policy.");
-    if (!user?.is_subscribed) {
+    if (!hasPremiumAccess(user)) {
       router.push("/paywall");
       return;
     }
@@ -598,7 +599,7 @@ export default function Upload() {
       </View>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-          {!user?.is_subscribed && (
+          {!hasPremiumAccess(user) && (
             <Pressable
               testID="upload-paywall-banner"
               onPress={() => router.push("/paywall")}

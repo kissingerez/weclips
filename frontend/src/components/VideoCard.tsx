@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { API_BASE } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
+import { hasPremiumAccess } from "@/src/lib/access";
 import { colors, radius, spacing, text } from "@/src/theme";
 
 // Circular creator avatar matching weclips.app. Loads the user's avatar image
@@ -102,7 +103,7 @@ export const VideoCard: React.FC<{ video: VideoCardData; onDeleted?: (id: string
   const thumb = video.has_thumbnail
     ? `${API_BASE}/videos/${video.id}/thumbnail?v=${encodeURIComponent(bust)}`
     : null;
-  const locked = !user?.is_subscribed;
+  const locked = !hasPremiumAccess(user);
   const durationLabel = formatDuration(video.duration_sec);
 
   return (
