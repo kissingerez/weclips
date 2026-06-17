@@ -76,6 +76,19 @@ R2_PRESIGN_STREAM_TTL = int(os.environ.get("R2_PRESIGN_STREAM_TTL", "3600"))
 # Free teaser length (seconds) guests / non-subscribers can watch before the paywall.
 VIDEO_PREVIEW_SECONDS = int(os.environ.get("VIDEO_PREVIEW_SECONDS", "15"))
 
+# --- Emergent managed push notifications (SuprSend relay) ---
+# EMERGENT_PUSH_KEY is injected by the deployment pipeline at build time; locally
+# it stays "placeholder" (pushes no-op until deployed). Only the backend ever
+# talks to the relay — the device token is registered upstream and resolved by
+# user id, so we never store tokens ourselves.
+EMERGENT_PUSH_KEY = os.environ.get("EMERGENT_PUSH_KEY", "placeholder")
+PUSH_BASE_URL = "https://integrations.emergentagent.com"
+_push_client = httpx.AsyncClient(
+    base_url=PUSH_BASE_URL,
+    headers={"X-Push-Key": EMERGENT_PUSH_KEY},
+    timeout=10.0,
+)
+
 s3 = None
 if R2_ENDPOINT_URL and R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY and R2_BUCKET:
     s3 = boto3.client(
@@ -144,6 +157,7 @@ class UserPublic(BaseModel):
     email_public: bool = False
     subscription_status: str
     created_at: datetime
+    push_enabled: bool = True
     deletion_pending: bool = False
     deletion_expires_at: Optional[datetime] = None
     # --- Moderation status (visible to the user themselves so the app can
@@ -480,6 +494,7 @@ def user_to_public(u: dict, *, followers: int = 0, following: int = 0) -> UserPu
         email_public=bool(u.get("email_public", False)),
         subscription_status=u.get("subscription_status", "none"),
         created_at=u["created_at"],
+        push_enabled=bool(u.get("push_enabled", True)),
         deletion_pending=deletion_pending,
         deletion_expires_at=deletion_expires_at,
         warnings_count=int(u.get("warnings_count", 0)),
@@ -1761,6 +1776,7 @@ async def complete_multipart_upload(
         update["duration_sec"] = round(duration_sec, 2)
     await videos_col.update_one({"_id": video_id}, {"$set": update})
     v.update(update)
+    await _notify_new_video_to_followers(user, video_id, v.get("title"))
     return video_to_public(v)
 
 
@@ -1871,6 +1887,7 @@ async def complete_upload(
         update["duration_sec"] = round(final_dur, 2)
     await videos_col.update_one({"_id": video_id}, {"$set": update})
     v.update(update)
+    await _notify_new_video_to_followers(user, video_id, v.get("title"))
     return video_to_public(v)
 
 
@@ -2463,6 +2480,12 @@ async def like_video(video_id: str, user: dict = Depends(require_subscriber)):
         )
     except Exception as e:
         logger.warning("like notification failed: %s", e)
+    await _notify_push(
+        [v.get("creator_id")],
+        "New like",
+        f'{user.get("display_name") or "Someone"} liked your video',
+        action_url=f"/video/{video_id}",
+    )
     return {"liked": True, "likes": int(v.get("likes", 0)) + 1}
 
 
@@ -2540,6 +2563,12 @@ async def add_comment(video_id: str, body: CommentReq, user: dict = Depends(requ
         )
     except Exception as e:
         logger.warning("comment notification failed: %s", e)
+    await _notify_push(
+        [v.get("creator_id")],
+        "New comment",
+        f'{user.get("display_name") or "Someone"}: {body.text.strip()[:80]}',
+        action_url=f"/video/{video_id}",
+    )
     return CommentPublic(
         id=cid,
         video_id=video_id,
@@ -2858,6 +2887,12 @@ async def follow_user(target_user_id: str, user: dict = Depends(get_current_user
         )
     except Exception as e:
         logger.warning("follow notification failed: %s", e)
+    await _notify_push(
+        [target_user_id],
+        "New follower",
+        f'{user.get("display_name") or "Someone"} started following you',
+        action_url=f"/user/{user['_id']}",
+    )
     followers = await follows_col.count_documents({"followee_id": target_user_id})
     return {"following": True, "followers": followers}
 
@@ -2981,6 +3016,127 @@ async def mark_read(user: dict = Depends(get_current_user)):
 
 
 # ---------------------------------------------------------------------------
+# Push notifications (Emergent managed relay)
+# ---------------------------------------------------------------------------
+class RegisterPushReq(BaseModel):
+    platform: str  # "ios" | "android"
+    device_token: str
+
+
+class PushPreferenceReq(BaseModel):
+    enabled: bool
+
+
+async def send_push(recipients: List[str], data: dict) -> None:
+    """Relay a push to the Emergent managed push service. `recipients` are app
+    user IDs (tokens are resolved upstream). Backend-only — never expose."""
+    if not recipients:
+        return
+    for i in range(0, len(recipients), 100):
+        chunk = recipients[i : i + 100]
+        resp = await _push_client.post(
+            "/api/v1/push/trigger", json={"recipients": chunk, "data": data}
+        )
+        resp.raise_for_status()
+
+
+async def _notify_push(recipient_ids, title, message, action_url=None):
+    """Best-effort push to users who haven't disabled notifications. Swallows
+    every error so push delivery never blocks the primary request."""
+    try:
+        ids = [r for r in dict.fromkeys(recipient_ids) if r]
+        if not ids:
+            return
+        disabled = set()
+        async for u in users_col.find(
+            {"_id": {"$in": ids}, "push_enabled": False}, {"_id": 1}
+        ):
+            disabled.add(u["_id"])
+        ids = [r for r in ids if r not in disabled]
+        if not ids:
+            return
+        data = {"title": title, "message": message}
+        if action_url:
+            data["action_url"] = action_url
+        await send_push(ids, data)
+    except Exception as e:
+        logger.warning("push notification failed (non-blocking): %s", e)
+
+
+async def _notify_new_video_to_followers(creator: dict, video_id: str, title: Optional[str]):
+    """In-app + push notify a creator's followers that a new video is live."""
+    creator_name = creator.get("display_name") or "Someone"
+    vid_title = (title or "a new video").strip()[:120]
+    follower_ids: List[str] = []
+    cursor = follows_col.find({"followee_id": creator["_id"]}, {"follower_id": 1}).limit(2000)
+    async for f in cursor:
+        fid = f.get("follower_id")
+        if fid and fid != creator["_id"]:
+            follower_ids.append(fid)
+    if not follower_ids:
+        return
+    docs = [
+        {
+            "_id": str(uuid.uuid4()),
+            "recipient_id": fid,
+            "type": "new_video",
+            "actor_id": creator["_id"],
+            "actor_name": creator_name,
+            "actor_username": creator.get("username"),
+            "actor_has_avatar": bool(creator.get("avatar_base64")),
+            "video_id": video_id,
+            "video_title": vid_title,
+            "text": None,
+            "read": False,
+            "created_at": now_utc(),
+        }
+        for fid in follower_ids
+    ]
+    try:
+        await notifications_col.insert_many(docs, ordered=False)
+    except Exception as e:
+        logger.warning("new_video in-app notify failed: %s", e)
+    await _notify_push(
+        follower_ids,
+        f"{creator_name} posted",
+        vid_title,
+        action_url=f"/video/{video_id}",
+    )
+
+
+@api.post("/register-push", status_code=201)
+async def register_push(body: RegisterPushReq, user: dict = Depends(get_current_user)):
+    """Register this device's native push token with the managed relay, keyed to
+    the authenticated user so future pushes resolve to all their devices."""
+    payload = {
+        "user_id": user["_id"],
+        "platform": body.platform,
+        "device_token": body.device_token,
+    }
+    try:
+        resp = await _push_client.post("/api/v1/push/users/register", json=payload)
+        if resp.status_code in (401, 403):
+            raise HTTPException(status_code=500, detail="Push key missing or invalid")
+        resp.raise_for_status()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning("register-push relay failed: %s", e)
+        raise HTTPException(status_code=502, detail="Push provider unavailable")
+    return {"status": "registered"}
+
+
+@api.post("/notifications/push-preference")
+async def set_push_preference(
+    body: PushPreferenceReq, user: dict = Depends(get_current_user)
+):
+    await users_col.update_one(
+        {"_id": user["_id"]}, {"$set": {"push_enabled": bool(body.enabled)}}
+    )
+    return {"push_enabled": bool(body.enabled)}
+
+
+# ---------------------------------------------------------------------------
 # Founder moderation — report queue
 # ---------------------------------------------------------------------------
 async def _notify_founders_of_report(
@@ -3001,9 +3157,11 @@ async def _notify_founders_of_report(
     text = f'Reported {target_type} "{label}": {short_reason}'
 
     founders = users_col.find({"is_founder": True}, {"_id": 1})
+    founder_ids: List[str] = []
     async for f in founders:
         if f["_id"] == actor["_id"]:
             continue
+        founder_ids.append(f["_id"])
         await notifications_col.insert_one(
             {
                 "_id": str(uuid.uuid4()),
@@ -3023,6 +3181,12 @@ async def _notify_founders_of_report(
                 "created_at": now_utc(),
             }
         )
+    await _notify_push(
+        founder_ids,
+        "New report to review",
+        text,
+        action_url="/admin/reports",
+    )
 
 
 class AdminReport(BaseModel):

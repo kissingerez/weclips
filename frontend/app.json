@@ -44,6 +44,13 @@
         {
           "photosPermission": "Select videos and images to upload."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/adaptive-icon.png",
+          "color": "#000000"
+        }
       ]
     ],
     "experiments": {

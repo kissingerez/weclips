@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,12 +7,31 @@ import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import { confirmDialog, alertDialog } from "@/src/lib/dialogs";
 import { manageSubscriptions, rcRestore } from "@/src/lib/iap";
+import { registerForPush } from "@/src/lib/push";
 import { colors, radius, spacing, text } from "@/src/theme";
 
 export default function Settings() {
   const { user, logout, refresh } = useAuth();
   const router = useRouter();
   const [openReports, setOpenReports] = useState<number>(0);
+  const [pushOn, setPushOn] = useState<boolean>(user?.push_enabled !== false);
+  const [pushBusy, setPushBusy] = useState(false);
+
+  const togglePush = async (next: boolean) => {
+    if (pushBusy) return;
+    setPushBusy(true);
+    setPushOn(next); // optimistic
+    try {
+      await api.post("/notifications/push-preference", { enabled: next });
+      if (next) await registerForPush();
+      await refresh();
+    } catch (e: any) {
+      setPushOn(!next); // revert
+      await alertDialog("Couldn't update", e?.message ?? "Please try again.");
+    } finally {
+      setPushBusy(false);
+    }
+  };
 
   const loadFounderSummary = useCallback(async () => {
     try {
@@ -158,6 +177,27 @@ export default function Settings() {
             <Text style={styles.label}>Restore purchases</Text>
             <Ionicons name="refresh" size={18} color={colors.onSurfaceTertiary} />
           </Pressable>
+
+          {user ? (
+            <>
+              <Text style={[styles.sectionLabel, styles.divTop]}>NOTIFICATIONS</Text>
+              <View style={styles.row}>
+                <View style={styles.rowLeft}>
+                  <Text style={styles.label}>Push notifications</Text>
+                  <Text style={styles.subLabel}>
+                    Likes, comments, new followers & posts
+                  </Text>
+                </View>
+                <Switch
+                  testID="settings-push-toggle"
+                  value={pushOn}
+                  onValueChange={togglePush}
+                  disabled={pushBusy}
+                  trackColor={{ false: colors.border, true: colors.brand }}
+                />
+              </View>
+            </>
+          ) : null}
 
           <Text style={[styles.sectionLabel, styles.divTop]}>LEGAL</Text>
           {legalItems.map((item) => (

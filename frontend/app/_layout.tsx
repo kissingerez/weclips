@@ -9,6 +9,7 @@ import { applyGlobalFont } from "@/src/lib/applyGlobalFont";
 import { AuthProvider, useAuth } from "@/src/lib/auth";
 import { UploadProgressProvider, UploadPill } from "@/src/lib/uploadProgress";
 import { useRevenueCatConfig } from "@/src/lib/useRevenueCat";
+import { usePushNotifications } from "@/src/lib/usePush";
 
 SplashScreen.preventAutoHideAsync();
 applyGlobalFont();
@@ -18,6 +19,7 @@ function AuthGate() {
   const segments = useSegments();
   const router = useRouter();
   useRevenueCatConfig();
+  usePushNotifications(user?.id, user?.push_enabled);
 
   useEffect(() => {
     if (loading) return;

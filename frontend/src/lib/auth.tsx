@@ -18,6 +18,7 @@ export type Me = {
   is_subscribed: boolean;
   subscription_status: string;
   created_at: string;
+  push_enabled?: boolean;
   deletion_pending?: boolean;
   deletion_expires_at?: string | null;
   warnings_count?: number;

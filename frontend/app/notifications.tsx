@@ -17,7 +17,7 @@ import { colors, radius, spacing, text } from "@/src/theme";
 
 type Notification = {
   id: string;
-  type: "follow" | "comment" | "like" | "report" | "warning" | "suspended" | "banned";
+  type: "follow" | "comment" | "like" | "report" | "new_video" | "warning" | "suspended" | "banned";
   actor_id: string;
   actor_name: string;
   actor_username?: string | null;
@@ -49,6 +49,7 @@ const ICONS: Record<Notification["type"], { name: any; color: string }> = {
   comment: { name: "chatbubble", color: colors.brand },
   like: { name: "heart", color: colors.error },
   report: { name: "flag", color: "#D97706" },
+  new_video: { name: "videocam", color: colors.brand },
   warning: { name: "warning", color: "#D97706" },
   suspended: { name: "time", color: "#D97706" },
   banned: { name: "hand-left", color: colors.error },
@@ -59,6 +60,7 @@ const VERBS: Record<Notification["type"], string> = {
   comment: "commented on your video",
   like: "liked your video",
   report: "filed a report",
+  new_video: "posted a new video",
   warning: "sent you a warning",
   suspended: "suspended your account",
   banned: "banned your account",

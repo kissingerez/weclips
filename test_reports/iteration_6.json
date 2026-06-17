@@ -1,0 +1,48 @@
+{
+  "summary": "Tested the new push-notifications feature end-to-end (backend pytest + Expo web preview). Backend 10/10 pass in /app/backend/tests/test_push_notifications.py — push_enabled is in /api/auth/me, POST /api/notifications/push-preference requires auth + persists (verified via subsequent GET /auth/me), POST /api/register-push returns 500 with the placeholder relay key (NOT 200), and like/comment/follow all still return 200 with the best-effort push hook attached (server logs confirm upstream /push/trigger 401s are caught: 'push notification failed (non-blocking)'). Frontend uncovered TWO real bugs: (1) BLOCKING on web: src/lib/usePush.ts called Notifications.getLastNotificationResponseAsync() unconditionally, throwing 'method not available on web' which broke AuthGate (login appeared to succeed but user never hydrated, so the entire NOTIFICATIONS section in Settings did not render). I applied the minimal mechanical Platform.OS==='web' guard to that second useEffect so the rest of the suite can be tested — main agent should review and apply the same guard pattern that lib/push.ts already uses. (2) UI persistence bug in app/settings.tsx:17 — `useState<boolean>(user?.push_enabled !== false)` runs ONCE on first render when `user` is still null, locking pushOn to true. There is no useEffect syncing pushOn when user later loads. End-to-end test verified: toggle OFF → backend stores false (confirmed via curl: push_enabled=false), reload Settings → UI toggle shows ON (wrong). After my web-guard fix, the toggle, its testID 'settings-push-toggle', the NOTIFICATIONS section header, the 'Push notifications' label with sub-label 'Likes, comments, new followers & posts', and the network round-trip (POST /api/notifications/push-preference → 200) all render and fire correctly on web. Notifications screen also renders without crashing. Restored googletest push_enabled back to true.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/users/{id}/follow (internal _create_notification)", "issue": "MongoDB warning surfaced in backend logs: 'follow notification failed: Performing an update on the path _id would modify the immutable field _id'. The follow endpoint still returns 200 (wrapped in try/except) and the new push hook fires fine, but the in-app follow notification document does NOT get inserted. Not introduced by this push iteration but newly visible — looks like an upsert that includes _id in $set. Reference: server.py around _create_notification call site in follow_user."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "app/settings.tsx (Push notifications toggle)", "issue": "pushOn state is initialized via useState(user?.push_enabled !== false) which runs once at mount. If user is null on first render (auth still hydrating), pushOn locks to true and never re-syncs. Verified: backend stores push_enabled=false correctly (curl GET /auth/me returns false), but after page reload the Settings toggle visually shows ON. Fix: add useEffect(() => setPushOn(user?.push_enabled !== false), [user?.push_enabled]).", "testID": "settings-push-toggle", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "src/lib/usePush.ts:37 (Notifications.getLastNotificationResponseAsync)", "issue": "BLOCKING on web preview: getLastNotificationResponseAsync is NOT available on web (throws 'method or property ExpoNotifications.getLastNotificationResponse is not available on web'). The unconditional call inside the cold-start useEffect crashed AuthGate, preventing login state from hydrating so the new NOTIFICATIONS section never rendered in Settings. I added an `if (Platform.OS === 'web') return;` guard at the top of that useEffect — main agent should review/keep that fix. Same pattern as lib/push.ts:36 which already does the web no-op."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_push_notifications.py",
+    "/app/test_reports/pytest/push_notifications_results.xml"
+  ],
+  "action_items": [
+    "FIX (HIGH): app/settings.tsx — sync pushOn when user loads. Suggested: `useEffect(() => { if (user) setPushOn(user.push_enabled !== false); }, [user?.push_enabled]);` so the UI reflects the persisted server state after auth hydration / reload.",
+    "REVIEW the guard I added to src/lib/usePush.ts (`if (Platform.OS === 'web') return;` at start of the response-listener useEffect). Without it, the entire logged-in web preview crashes on AuthGate mount. Optionally also guard the first useEffect — registerForPush already self-no-ops on web so that one is fine.",
+    "Investigate pre-existing in-app follow-notification insertion failure: _create_notification upsert for follow type triggers MongoDB 'cannot modify immutable field _id'. The push hook itself works; the legacy in-app notification doc does not get written. Likely an $set that includes _id."
+  ],
+  "critical_code_review_comments": [
+    "server.py:3043 _notify_push correctly fans out user_ids→ids-list, filters out users with push_enabled=False BEFORE relaying, and wraps the entire relay in try/except — push delivery cannot block the primary request. Good defensive design.",
+    "server.py:3107 register_push translates upstream 401/403 into HTTP 500 with detail 'Push key missing or invalid' and all other relay errors into 502 'Push provider unavailable'. With the placeholder key in this env it consistently returns 500 — exactly the expected pre-deploy behavior. It NEVER returns 200, which is the important invariant.",
+    "server.py:3129 set_push_preference is a single upsert on users_col — clean. Persists boolean correctly and GET /auth/me reflects it via user_to_public.",
+    "UserPublic.push_enabled defaults to True in the Pydantic model (line 160) and user_to_public reads bool(u.get('push_enabled', True)) (line 497) so grandfathered accounts that pre-date the migration return True by default.",
+    "Frontend settings.tsx:17 — see ui_bugs above; the optimistic UI flow (setPushOn(next) then await refresh()) is otherwise sound, including error revert.",
+    "Frontend usePush.ts — registerForPush already correctly checks Platform.OS==='web' (push.ts:36) and Device.isDevice, but the deep-link useEffect in usePush.ts does NOT. That mismatch is what broke the web preview."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_push_notifications.py (new — 10 tests, all passing)",
+    "/app/test_reports/pytest/push_notifications_results.xml (new)",
+    "/app/frontend/src/lib/usePush.ts (added `import { Platform } from 'react-native'` and `if (Platform.OS === 'web') return;` guard at the top of the response-listener useEffect)",
+    "/app/test_reports/iteration_6.json (new)"
+  ],
+  "success_rate": {"backend": "100% (10/10)", "frontend": "Settings toggle UI renders correctly and POST /api/notifications/push-preference is fired on tap; persistence at the DB level confirmed via API. UI-side persistence on reload is BROKEN due to ui_bug above. Notifications screen renders without crash."},
+  "seed_data_creation": "None — used googletest@weclips.app (subscribed) and verified appletest@weclips.app exists but is NOT currently subscribed in this preview DB (subscription_status: 'none'), so the test class uses googletest as the actor for like/comment which require active subscription.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "After main agent fixes app/settings.tsx pushOn sync, re-run the Playwright flow: login as googletest, open /settings, toggle off, reload, assert the toggle is OFF. The pytest file /app/backend/tests/test_push_notifications.py is the single source of truth for backend regression (10 tests). Note that the Apple reviewer account is NOT subscribed in this preview env, so any like/comment test must use googletest (subscribed). Also remember the Metro stale-bundle gotcha from iteration 5 — `sudo supervisorctl restart expo` after frontend code changes.",
+  "rca_of_issue": "Bug 1 (web crash): src/lib/usePush.ts line 37 unconditionally invokes Notifications.getLastNotificationResponseAsync(), which expo-notifications does not implement on web (throws synchronously during effect setup). This propagates up through AuthGate, aborts the render tree, and prevents AuthProvider from settling its user state — so any subsequent screen that conditionally renders on `user` (like Settings' NOTIFICATIONS section gated by `{user ? ... : null}`) silently shows the logged-out variant. Reproduction: clean web load → login → /settings shows 'Become a member' and no NOTIFICATIONS section even for a subscribed user. Mitigation: Platform.OS === 'web' early-return at the top of the listener useEffect (I applied this). Bug 2 (UI persistence): useState initializer in settings.tsx:17 captures user?.push_enabled at first render time; for a logged-in route, AuthProvider may still be hydrating, so initial pushOn is true. Subsequent user state updates do not re-run the initializer, and there's no useEffect dependency on user.push_enabled. Reproduction: toggle off → reload → toggle visually ON (DB still has false). Mitigation: useEffect to mirror user.push_enabled into pushOn on user-load."
+}
