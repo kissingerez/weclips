@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -16,6 +16,11 @@ export default function Settings() {
   const [openReports, setOpenReports] = useState<number>(0);
   const [pushOn, setPushOn] = useState<boolean>(user?.push_enabled !== false);
   const [pushBusy, setPushBusy] = useState(false);
+
+  // Re-sync once auth finishes hydrating (user is null on first render).
+  useEffect(() => {
+    if (user) setPushOn(user.push_enabled !== false);
+  }, [user?.push_enabled]);
 
   const togglePush = async (next: boolean) => {
     if (pushBusy) return;

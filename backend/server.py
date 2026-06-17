@@ -2959,11 +2959,13 @@ async def _create_notification(
         "read": False,
         "created_at": now_utc(),
     }
-    # For follow events, collapse re-follows by upserting a single row.
+    # For follow events, collapse re-follows by upserting a single row. `_id`
+    # must live in $setOnInsert only — Mongo rejects modifying it on update.
     if type_ == "follow":
+        set_fields = {k: val for k, val in doc.items() if k != "_id"}
         await notifications_col.update_one(
             {"recipient_id": recipient_id, "type": "follow", "actor_id": actor["_id"]},
-            {"$set": {**doc, "_id": doc["_id"]}, "$setOnInsert": {}},
+            {"$set": set_fields, "$setOnInsert": {"_id": doc["_id"]}},
             upsert=True,
         )
     else:
