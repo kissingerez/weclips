@@ -3979,6 +3979,17 @@ async def legal_delete_account_short():
     return HTMLResponse(_legal_page("Delete Your Account", _DELETE_ACCOUNT_BODY))
 
 
+@app.get("/api/assets/logo.png", include_in_schema=False)
+async def brand_logo():
+    """Public, email-safe WeClips logo (stable HTTPS URL for SendGrid templates)."""
+    path = os.path.join(os.path.dirname(__file__), "assets", "logo.png")
+    return FileResponse(
+        path,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 # Public OG-preview page for sharing a specific video. Renders an HTML page
 # with Open Graph + Twitter Card meta tags so iMessage, WhatsApp, X, etc.
 # show a thumbnail + title preview. Tapping the link in a browser falls
