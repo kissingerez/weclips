@@ -129,3 +129,9 @@ Verified: backend curl, babel parse, upload screen renders for logged-in user.
 - Config: SUBSCRIPTION_PRICE_LABEL (default "$0.99"), APP_PUBLIC_URL for links/logo.
 - Verified live: posted INITIAL_PURCHASE webhook -> 200, flag set, SendGrid accepted (202), exp=June 26 2026. Logo route /api/assets/logo.png returns 200 image/png (prod after redeploy).
 - USER: you can now DELETE the old SendGrid welcome template/automation so it doesn't double-send.
+
+## 2026-02 — Day-6 "trial ending tomorrow" reminder (email + push)
+- New backend _send_trial_ending_email() (logo baked, "ends tomorrow", first-charge date + price, cancel/manage line). _run_trial_reminders() sweeps users whose trial_ends_at is within TRIAL_REMINDER_WINDOW_HOURS (default 30h) and trial_reminder_sent != True; sends email + push (_notify_push, action_url /settings); claims each user atomically (race/replica-safe). _trial_reminder_loop() runs 60s after startup then every 6h (registered in startup event).
+- trial_ends_at lifecycle in RevenueCat webhook: SET on INITIAL_PURCHASE (= trial), CLEARED on RENEWAL/PRODUCT_CHANGE (converted) and EXPIRATION/billing issue. This scopes reminders to the TRIAL only — paid monthly renewals are never reminded.
+- Verified live: INITIAL_PURCHASE (20h trial) -> trial_ends_at set; reminder sweep -> trial-ending email accepted (202) + trial_reminder_sent=True; idempotent thereafter.
+- Config: TRIAL_REMINDER_WINDOW_HOURS (default 30).
