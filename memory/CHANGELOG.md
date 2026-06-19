@@ -122,3 +122,10 @@ Verified: backend curl, babel parse, upload screen renders for logged-in user.
 - The "Welcome / 7-day free trial" email is NOT in the app codebase — it's a SendGrid Dynamic Template/Automation managed in the SendGrid dashboard. The broken logo + "WeClips · Ad-free · No AI · No chaos." footer line are edited there, not in code.
 - Added backend/assets/logo.png (copied from frontend icon.png, 512x512) and route GET /api/assets/logo.png (FileResponse image/png, 1-day cache) so there's a stable public HTTPS logo URL for the email template: https://weclips.app/api/assets/logo.png (live in preview; production after redeploy).
 - USER ACTION (SendGrid dashboard): set the welcome template's logo image src to that URL (width ~120, alt "WeClips"); delete the footer text module "WeClips · Ad-free · No AI · No chaos.".
+
+## 2026-02 — Welcome email moved into app code (sent on trial start)
+- Replaced reliance on the external SendGrid template. New backend _send_welcome_email() builds the HTML (logo baked via https://weclips.app/api/assets/logo.png, "Welcome, {first}", 7-day trial copy, first-charge date, "Open WeClips" button, "A few things to try first" list, support + cancel line). NO "WeClips · Ad-free · No AI · No chaos." footer (removed per user).
+- _maybe_send_welcome_email(app_user_id): race-safe one-time send via atomic welcome_email_sent flag (find_one_and_update). Trigger: RevenueCat webhook event_type == "INITIAL_PURCHASE" (= trial starts). Fires once; existing members never get back-filled. Uses subscription_expires_at as the first-charge date ("%B %d, %Y").
+- Config: SUBSCRIPTION_PRICE_LABEL (default "$0.99"), APP_PUBLIC_URL for links/logo.
+- Verified live: posted INITIAL_PURCHASE webhook -> 200, flag set, SendGrid accepted (202), exp=June 26 2026. Logo route /api/assets/logo.png returns 200 image/png (prod after redeploy).
+- USER: you can now DELETE the old SendGrid welcome template/automation so it doesn't double-send.

@@ -44,6 +44,7 @@ RC_WEBHOOK_SECRET = os.environ.get("REVENUECAT_WEBHOOK_SECRET", "")
 RC_REST_API_KEY = os.environ.get("REVENUECAT_REST_API_KEY", "")
 RC_ENTITLEMENT = os.environ.get("REVENUECAT_ENTITLEMENT_ID", "premium")
 APP_PUBLIC_URL = os.environ.get("APP_PUBLIC_URL", "https://weclips.app")
+SUBSCRIPTION_PRICE_LABEL = os.environ.get("SUBSCRIPTION_PRICE_LABEL", "$0.99")
 SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
 SENDGRID_SENDER_EMAIL = os.environ.get("SENDGRID_SENDER_EMAIL", "")
 PASSWORD_RESET_TTL_MIN = int(os.environ.get("PASSWORD_RESET_TTL_MIN", "15"))
@@ -1072,6 +1073,87 @@ async def _send_email_nonblocking(fn, *args) -> bool:
         return False
 
 
+def _send_welcome_email(to_email: str, first_name: str, charge_date: str) -> bool:
+    """Trial-start welcome email. Logo is baked in via the public /api/assets/logo.png
+    URL so it renders in all clients (no inline/CID image)."""
+    if not SENDGRID_API_KEY or not SENDGRID_SENDER_EMAIL:
+        logger.warning("SendGrid not configured — skipping welcome email")
+        return False
+    try:
+        from sendgrid import SendGridAPIClient
+        from sendgrid.helpers.mail import Mail
+
+        logo = f"{APP_PUBLIC_URL}/api/assets/logo.png"
+        price = SUBSCRIPTION_PRICE_LABEL
+        html = f"""
+        <div style="font-family:-apple-system,Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0F172A;">
+          <div style="text-align:center;margin-bottom:24px;">
+            <img src="{logo}" alt="WeClips" width="72" height="72" style="border-radius:16px;display:inline-block;" />
+          </div>
+          <h1 style="font-size:24px;margin:0 0 12px;">Welcome, {first_name} 👋</h1>
+          <p style="color:#334155;line-height:1.6;font-size:16px;margin:0 0 20px;">
+            Your <b>7-day free trial</b> is live. You can now watch every clip ad-free,
+            follow creators, and upload your own. Your first {price} charge will be on <b>{charge_date}</b>.
+          </p>
+          <p style="margin:0 0 28px;">
+            <a href="{APP_PUBLIC_URL}" style="background:#89CFF0;color:#0A1929;padding:14px 24px;border-radius:10px;text-decoration:none;font-weight:800;font-size:16px;display:inline-block;">
+              Open WeClips &rarr;
+            </a>
+          </p>
+          <h2 style="font-size:18px;margin:0 0 12px;">A few things to try first</h2>
+          <ul style="color:#334155;line-height:1.7;font-size:15px;padding-left:20px;margin:0 0 28px;">
+            <li>Tap any clip on the Discover page &mdash; they all stream ad-free now.</li>
+            <li>Hit the <b>Upload</b> tab and share your first clip (up to 25 GB).</li>
+            <li>Use the search bar at the top of Discover to find creators by handle.</li>
+          </ul>
+          <hr style="border:none;border-top:1px solid #E2E8F0;margin:24px 0;" />
+          <p style="color:#64748B;font-size:14px;line-height:1.6;margin:0;">
+            Need a hand? Just reply to this email or write to
+            <a href="mailto:{SENDGRID_SENDER_EMAIL}" style="color:#2563EB;">{SENDGRID_SENDER_EMAIL}</a>.
+            You can cancel anytime from <b>Settings &rarr; Membership &rarr; Manage subscription</b>
+            &mdash; no charge if you cancel before day 7.
+          </p>
+        </div>
+        """
+        msg = Mail(
+            from_email=SENDGRID_SENDER_EMAIL,
+            to_emails=to_email,
+            subject="Welcome to WeClips — your 7-day free trial is live",
+            html_content=html,
+        )
+        resp = SendGridAPIClient(SENDGRID_API_KEY).send(msg)
+        ok = 200 <= resp.status_code < 300
+        if ok:
+            logger.info(f"SendGrid welcome email accepted: to={to_email} status={resp.status_code}")
+        else:
+            logger.error(
+                f"SendGrid welcome email REJECTED: to={to_email} status={resp.status_code} "
+                f"body={getattr(resp, 'body', b'')!r}"
+            )
+        return ok
+    except Exception as e:
+        logger.exception(f"SendGrid welcome send failed: {e}")
+        return False
+
+
+async def _maybe_send_welcome_email(app_user_id: str) -> None:
+    """Send the trial-start welcome email exactly once per user (race-safe via an
+    atomic flag flip). Called when RevenueCat reports the first purchase/trial."""
+    try:
+        doc = await users_col.find_one_and_update(
+            {"_id": app_user_id, "welcome_email_sent": {"$ne": True}},
+            {"$set": {"welcome_email_sent": True}},
+        )
+        if not doc or not doc.get("email"):
+            return
+        first = (doc.get("display_name") or "there").strip().split(" ")[0] or "there"
+        exp = doc.get("subscription_expires_at")
+        charge_date = f"{exp:%B} {exp.day}, {exp.year}" if isinstance(exp, datetime) else "in 7 days"
+        await _send_email_nonblocking(_send_welcome_email, doc["email"], first, charge_date)
+    except Exception as e:
+        logger.warning(f"welcome email skipped: {e}")
+
+
 
 @api.post("/auth/forgot-password")
 async def forgot_password(body: ForgotPasswordReq):
@@ -1514,6 +1596,11 @@ async def revenuecat_webhook(
         return {"status": "ignored", "event": event_type}
 
     await users_col.update_one({"_id": app_user_id}, {"$set": update}, upsert=False)
+
+    # Trial starts -> one-time welcome email (idempotent; won't touch existing members).
+    if event_type == "INITIAL_PURCHASE":
+        await _maybe_send_welcome_email(app_user_id)
+
     return {"status": "ok", "event": event_type}
 
 
