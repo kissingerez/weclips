@@ -1265,6 +1265,83 @@ async def _trial_reminder_loop() -> None:
         await asyncio.sleep(6 * 3600)
 
 
+def _send_subscription_active_email(to_email: str, first_name: str, price: str) -> bool:
+    """One-time 'your trial converted — welcome to membership' thank-you, sent when
+    the first real charge succeeds after a free trial."""
+    if not SENDGRID_API_KEY or not SENDGRID_SENDER_EMAIL:
+        logger.warning("SendGrid not configured — skipping membership email")
+        return False
+    try:
+        from sendgrid import SendGridAPIClient
+        from sendgrid.helpers.mail import Mail
+
+        logo = f"{APP_PUBLIC_URL}/api/assets/logo.png"
+        html = f"""
+        <div style="font-family:-apple-system,Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0F172A;">
+          <div style="text-align:center;margin-bottom:24px;">
+            <img src="{logo}" alt="WeClips" width="72" height="72" style="border-radius:16px;display:inline-block;" />
+          </div>
+          <h1 style="font-size:24px;margin:0 0 12px;">You're a WeClips member, {first_name} 🎉</h1>
+          <p style="color:#334155;line-height:1.6;font-size:16px;margin:0 0 20px;">
+            Your free trial just became a full membership and your {price} payment went through.
+            Thank you for supporting an ad-free, calm space — it genuinely means a lot.
+          </p>
+          <p style="color:#334155;line-height:1.6;font-size:16px;margin:0 0 28px;">
+            You're all set: keep watching ad-free, follow your favorite creators, and upload your own clips.
+          </p>
+          <p style="margin:0 0 28px;">
+            <a href="{APP_PUBLIC_URL}" style="background:#89CFF0;color:#0A1929;padding:14px 24px;border-radius:10px;text-decoration:none;font-weight:800;font-size:16px;display:inline-block;">
+              Open WeClips &rarr;
+            </a>
+          </p>
+          <hr style="border:none;border-top:1px solid #E2E8F0;margin:24px 0;" />
+          <p style="color:#64748B;font-size:14px;line-height:1.6;margin:0;">
+            Manage or cancel anytime from <b>Settings &rarr; Membership &rarr; Manage subscription</b>.
+            Questions? Just reply or write to
+            <a href="mailto:{SENDGRID_SENDER_EMAIL}" style="color:#2563EB;">{SENDGRID_SENDER_EMAIL}</a>.
+          </p>
+        </div>
+        """
+        msg = Mail(
+            from_email=SENDGRID_SENDER_EMAIL,
+            to_emails=to_email,
+            subject="You're a WeClips member 🎉",
+            html_content=html,
+        )
+        resp = SendGridAPIClient(SENDGRID_API_KEY).send(msg)
+        ok = 200 <= resp.status_code < 300
+        if ok:
+            logger.info(f"SendGrid membership email accepted: to={to_email} status={resp.status_code}")
+        else:
+            logger.error(
+                f"SendGrid membership email REJECTED: to={to_email} status={resp.status_code} "
+                f"body={getattr(resp, 'body', b'')!r}"
+            )
+        return ok
+    except Exception as e:
+        logger.exception(f"SendGrid membership send failed: {e}")
+        return False
+
+
+async def _maybe_send_conversion_email(app_user_id: str) -> None:
+    """If the user was in a trial (trial_ends_at set), atomically clear it and send
+    the membership thank-you exactly once. No-op for direct (no-trial) renewals and
+    for repeat monthly renewals."""
+    try:
+        converted = await users_col.find_one_and_update(
+            {"_id": app_user_id, "trial_ends_at": {"$ne": None}},
+            {"$set": {"trial_ends_at": None}},
+        )
+        if not converted or not converted.get("email"):
+            return
+        first = (converted.get("display_name") or "there").strip().split(" ")[0] or "there"
+        await _send_email_nonblocking(
+            _send_subscription_active_email, converted["email"], first, SUBSCRIPTION_PRICE_LABEL
+        )
+    except Exception as e:
+        logger.warning(f"membership email skipped: {e}")
+
+
 
 @api.post("/auth/forgot-password")
 async def forgot_password(body: ForgotPasswordReq):
@@ -1698,11 +1775,9 @@ async def revenuecat_webhook(
             except Exception:
                 pass
         # Track the trial window so the day-6 reminder only targets trials, never
-        # paid renewals. Set on trial start; cleared once the trial converts.
+        # paid renewals. Set on trial start; cleared on conversion (see below).
         if event_type == "INITIAL_PURCHASE" and update.get("subscription_expires_at"):
             update["trial_ends_at"] = update["subscription_expires_at"]
-        elif event_type in ("RENEWAL", "PRODUCT_CHANGE"):
-            update["trial_ends_at"] = None
     elif event_type in INACTIVE_EVENTS:
         update["is_subscribed"] = False
         update["subscription_status"] = "expired" if event_type == "EXPIRATION" else "billing_issue"
@@ -1718,6 +1793,10 @@ async def revenuecat_webhook(
     # Trial starts -> one-time welcome email (idempotent; won't touch existing members).
     if event_type == "INITIAL_PURCHASE":
         await _maybe_send_welcome_email(app_user_id)
+    # First charge after a trial -> one-time "you're a member" thank-you (also clears
+    # trial_ends_at). No-op for direct purchases and repeat monthly renewals.
+    elif event_type in ("RENEWAL", "PRODUCT_CHANGE"):
+        await _maybe_send_conversion_email(app_user_id)
 
     return {"status": "ok", "event": event_type}
 

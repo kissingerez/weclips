@@ -135,3 +135,9 @@ Verified: backend curl, babel parse, upload screen renders for logged-in user.
 - trial_ends_at lifecycle in RevenueCat webhook: SET on INITIAL_PURCHASE (= trial), CLEARED on RENEWAL/PRODUCT_CHANGE (converted) and EXPIRATION/billing issue. This scopes reminders to the TRIAL only — paid monthly renewals are never reminded.
 - Verified live: INITIAL_PURCHASE (20h trial) -> trial_ends_at set; reminder sweep -> trial-ending email accepted (202) + trial_reminder_sent=True; idempotent thereafter.
 - Config: TRIAL_REMINDER_WINDOW_HOURS (default 30).
+
+## 2026-02 — "Trial converted — you're a member" thank-you email
+- New _send_subscription_active_email() (logo baked, "You're a WeClips member 🎉", confirms first charge, manage link). _maybe_send_conversion_email() atomically clears trial_ends_at and sends once.
+- Trigger: RevenueCat webhook RENEWAL/PRODUCT_CHANGE -> only fires when trial_ends_at was set (i.e., the first charge converting a trial). Direct (no-trial) purchases and repeat monthly renewals send nothing. trial_ends_at now cleared HERE (removed from inline webhook update) so the conversion claim is the single source of truth.
+- Verified live: RENEWAL #1 after trial -> membership email accepted (202) + trial_ends_at cleared; RENEWAL #2 -> no resend (count=1).
+- Lifecycle emails now complete: welcome (trial start) -> day-6 reminder -> membership thank-you (conversion). All idempotent & trial-scoped.
