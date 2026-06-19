@@ -23,6 +23,10 @@ export default function Paywall() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  // Free-trial offer details read from the store product (configured in App Store
+  // Connect / Google Play). `trialLabel` is e.g. "7-day"; empty when no trial.
+  const [trialLabel, setTrialLabel] = useState<string>("");
+  const [trialEligible, setTrialEligible] = useState<boolean>(true);
 
   useEffect(() => {
     if (!iapOk) return;
@@ -36,15 +40,37 @@ export default function Paywall() {
           current?.monthly ||
           current?.availablePackages?.find((p: any) => p.identifier === RC_MONTHLY_PKG_ID) ||
           current?.availablePackages?.[0];
-        if (monthly) {
-          setPkg(monthly);
-          setPriceLabel(monthly.product?.priceString || "$0.99 / month");
+        if (!monthly) return;
+        setPkg(monthly);
+        setPriceLabel(monthly.product?.priceString || "$0.99 / month");
+
+        // A configured free trial shows up as an intro offer with price 0.
+        const intro = monthly.product?.introPrice;
+        if (intro && intro.price === 0 && intro.periodNumberOfUnits > 0) {
+          const unit = String(intro.periodUnit || "day").toLowerCase();
+          setTrialLabel(`${intro.periodNumberOfUnits}-${unit}`);
+
+          // iOS exposes a precise eligibility check; default to showing the trial
+          // elsewhere (Apple/Google's purchase sheet is the final source of truth).
+          try {
+            if (Platform.OS === "ios" && Purchases.checkTrialOrIntroductoryPriceEligibility) {
+              const id = monthly.product?.identifier;
+              const map = await Purchases.checkTrialOrIntroductoryPriceEligibility([id]);
+              const status = map?.[id]?.status;
+              // 1 === INELIGIBLE; treat anything else (eligible/unknown) as eligible.
+              setTrialEligible(status !== 1);
+            }
+          } catch {
+            setTrialEligible(true);
+          }
         }
       } catch (e: any) {
         console.warn("getOfferings failed", e?.message);
       }
     })();
   }, [iapOk]);
+
+  const showTrial = !!trialLabel && trialEligible;
 
   const subscribe = async () => {
     setErr(null);
@@ -67,7 +93,7 @@ export default function Paywall() {
           await api.post("/subscription/sync");
         } catch {}
         await refresh();
-        setInfo("You're in! Membership activated.");
+        setInfo(showTrial ? "Your free trial is active!" : "You're in! Membership activated.");
         setTimeout(() => router.back(), 800);
       } else {
         setErr("Purchase didn't unlock membership. Try Restore.");
@@ -136,6 +162,15 @@ export default function Paywall() {
             </Text>
           </Text>
 
+          {showTrial ? (
+            <View style={styles.trialBadge} testID="paywall-trial-badge">
+              <Ionicons name="gift-outline" size={16} color={colors.brand} />
+              <Text style={styles.trialBadgeText}>
+                {trialLabel} free trial, then {priceLabel}
+              </Text>
+            </View>
+          ) : null}
+
           <View style={styles.bullets}>
             <Bullet text="Zero ads — ever." />
             <Bullet text="100% human-made. No AI." />
@@ -183,7 +218,9 @@ export default function Paywall() {
                 {loading ? (
                   <ActivityIndicator color={colors.onBrand} />
                 ) : (
-                  <Text style={styles.primaryText}>Subscribe · {priceLabel}</Text>
+                  <Text style={styles.primaryText}>
+                    {showTrial ? `Start ${trialLabel} free trial` : `Subscribe · ${priceLabel}`}
+                  </Text>
                 )}
               </Pressable>
 
@@ -193,7 +230,11 @@ export default function Paywall() {
             </>
           )}
 
-          <Text style={styles.legal}>Auto-renews. Cancel anytime in your store account.</Text>
+          <Text style={styles.legal}>
+            {showTrial
+              ? `Free for ${trialLabel}, then ${priceLabel}. Auto-renews — cancel anytime in your store account before the trial ends.`
+              : "Auto-renews. Cancel anytime in your store account."}
+          </Text>
           <View style={styles.legalLinks}>
             <Pressable
               testID="paywall-terms-link"
@@ -234,6 +275,18 @@ const styles = StyleSheet.create({
   headline: { color: colors.onSurface, fontSize: 44, fontWeight: "900", lineHeight: 48 },
   headlineSmall: { fontSize: 18, fontWeight: "700", color: colors.onSurfaceSecondary },
   bullets: { gap: spacing.md, marginTop: spacing.xl },
+  trialBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(0,0,0,0.05)",
+    borderRadius: radius.pill,
+    paddingVertical: 6,
+    paddingHorizontal: spacing.md,
+    marginTop: spacing.md,
+  },
+  trialBadgeText: { color: colors.onSurface, fontSize: text.sm, fontWeight: "800" },
   bullet: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   bulletText: { color: colors.onSurface, fontSize: text.base, fontWeight: "600" },
   cta: { paddingBottom: spacing.md, gap: spacing.sm },

@@ -111,3 +111,9 @@ Verified: backend curl, babel parse, upload screen renders for logged-in user.
 - Verified (curl, non-sub user): no header -> 402; X-Client-Platform: android -> 200; ios -> 402. Lint clean.
 - TO REVERT when Android billing is live: set ANDROID_FREE_ACCESS=false in backend/.env AND ANDROID_FREE_ACCESS=false in src/lib/access.ts, then redeploy + rebuild.
 - Test artifact: backend/scripts/create_nonsub_test_user.py (nosubtest@weclips.app / NoSub2026!, non-subscribed, verified).
+
+## 2026-02 — 7-day free trial (auto-renewing) paywall support
+- The trial itself is configured in the STORES (App Store Connect introductory offer + Google Play base-plan free-trial offer); RevenueCat reads it and purchasePackage() applies it automatically. No backend change (trial shows as an active entitlement; period_type=TRIAL on the webhook; existing is_subscribed/expiry just works).
+- paywall.tsx: reads monthly package product.introPrice; when price===0 & periodNumberOfUnits>0 -> trialLabel (e.g. "7-day"). iOS uses checkTrialOrIntroductoryPriceEligibility (status!==1 => eligible); Android/web default eligible. Shows a trial badge ("{n}-{unit} free trial, then {price}"), button "Start {n}-{unit} free trial", success "Your free trial is active!", and legal "Free for {n}, then {price}. Auto-renews — cancel anytime before the trial ends." Falls back to normal Subscribe copy when no trial.
+- Native-only (offerings resolve on a device build); web shows the existing "coming soon" branch. Verified web paywall renders without crash.
+- USER STORE SETUP REQUIRED: App Store Connect -> Subscription -> Introductory Offer -> Free Trial 7 days. Google Play -> Subscription base plan -> Add offer -> Free trial 7 days, eligibility "New customer". Map products to entitlement "premium".
