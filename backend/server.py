@@ -4288,6 +4288,17 @@ async def brand_banner():
     )
 
 
+@app.get("/api/assets/bimi.svg", include_in_schema=False)
+async def brand_bimi():
+    """BIMI-spec (SVG Tiny PS) logo for the email sender avatar."""
+    path = os.path.join(os.path.dirname(__file__), "assets", "bimi.svg")
+    return FileResponse(
+        path,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 # Public OG-preview page for sharing a specific video. Renders an HTML page
 # with Open Graph + Twitter Card meta tags so iMessage, WhatsApp, X, etc.
 # show a thumbnail + title preview. Tapping the link in a browser falls

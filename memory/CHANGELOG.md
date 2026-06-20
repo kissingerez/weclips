@@ -146,3 +146,10 @@ Verified: backend curl, babel parse, upload screen renders for logged-in user.
 - backend/assets/logo.png was mistakenly the default Emergent app icon. Replaced with the real WeClips "W" logo (baby blue #89CFF0) pulled from the welcome@weclips.app Gravatar. Served at /api/assets/logo.png.
 - Lifecycle emails (welcome/trial/membership) now send from welcome@weclips.app (LIFECYCLE_SENDER_EMAIL) to match the Gravatar sender the user set up; domain weclips.app is SendGrid-authenticated. OTP/reset stay on support@weclips.app.
 - Note: sender avatar (Gravatar) display is recipient-mail-client dependent (BIMI is the only reliable control) — not fixable from email HTML.
+
+## 2026-02 — Email branding: banner header + BIMI logo
+- Corrected brand assets in emails: backend/assets/logo.png = blue triangle (apple-touch-icon), banner.png = og-image (triangle+wordmark+tagline). Lifecycle emails now use the BANNER as the header (full brand). Routes: /api/assets/logo.png, /api/assets/banner.png, /api/assets/bimi.svg.
+- BIMI: created backend/assets/bimi.svg (SVG Tiny PS, blue triangle #89CFF0 on white) served at /api/assets/bimi.svg.
+- DNS guidance given to user (Cloudflare): upgrade _dmarc to p=quarantine pct=100; add default._bimi TXT -> v=BIMI1; l=https://weclips.app/api/assets/bimi.svg;. Gmail also needs a VMC (paid, trademark). Yahoo/AOL/Apple show without VMC.
+- Sender Gravatar (purple "W" monogram) is the recipient mail client's fallback; Gmail/Yahoo/Apple don't use Gravatar for sender avatars — BIMI is the mechanism.
+- NOTE: production weclips.app still 404 on /api/assets/* — user's redeploy hasn't propagated; BIMI + email logo require the deploy to be live.
