@@ -6,7 +6,7 @@ from datetime import datetime, timezone, timedelta
 
 TO = "kissingerez@gmail.com"
 FIRST = "Nixon"
-LOGO = "https://weclips-preview.preview.emergentagent.com/api/assets/logo.png"
+LOGO = "https://weclips-preview.preview.emergentagent.com/api/assets/banner.png"
 PRICE = os.environ.get("SUBSCRIPTION_PRICE_LABEL", "$0.99")
 APP_URL = os.environ.get("APP_PUBLIC_URL", "https://weclips.app")
 SUPPORT = os.environ.get("SENDGRID_SENDER_EMAIL", "support@weclips.app")
@@ -18,8 +18,8 @@ charge_date = f"{exp:%B} {exp.day}, {exp.year}"
 
 html = f"""
 <div style="font-family:-apple-system,Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0F172A;">
-  <div style="text-align:center;margin-bottom:24px;">
-    <img src="{LOGO}" alt="WeClips" width="72" height="72" style="border-radius:16px;display:inline-block;" />
+  <div style="margin-bottom:24px;">
+    <img src="{LOGO}" alt="WeClips — Ad-free, Christian, and calm" width="560" style="width:100%;max-width:560px;height:auto;display:block;margin:0 auto;border-radius:12px;" />
   </div>
   <h1 style="font-size:24px;margin:0 0 12px;">Welcome, {FIRST} 👋</h1>
   <p style="color:#334155;line-height:1.6;font-size:16px;margin:0 0 20px;">

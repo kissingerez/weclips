@@ -1086,12 +1086,12 @@ def _send_welcome_email(to_email: str, first_name: str, charge_date: str) -> boo
         from sendgrid import SendGridAPIClient
         from sendgrid.helpers.mail import Mail
 
-        logo = f"{APP_PUBLIC_URL}/api/assets/logo.png"
+        banner = f"{APP_PUBLIC_URL}/api/assets/banner.png"
         price = SUBSCRIPTION_PRICE_LABEL
         html = f"""
         <div style="font-family:-apple-system,Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0F172A;">
-          <div style="text-align:center;margin-bottom:24px;">
-            <img src="{logo}" alt="WeClips" width="72" height="72" style="border-radius:16px;display:inline-block;" />
+          <div style="margin-bottom:24px;">
+            <img src="{banner}" alt="WeClips — Ad-free, Christian, and calm" width="560" style="width:100%;max-width:560px;height:auto;display:block;margin:0 auto;border-radius:12px;" />
           </div>
           <h1 style="font-size:24px;margin:0 0 12px;">Welcome, {first_name} 👋</h1>
           <p style="color:#334155;line-height:1.6;font-size:16px;margin:0 0 20px;">
@@ -1166,11 +1166,11 @@ def _send_trial_ending_email(to_email: str, first_name: str, charge_date: str, p
         from sendgrid import SendGridAPIClient
         from sendgrid.helpers.mail import Mail
 
-        logo = f"{APP_PUBLIC_URL}/api/assets/logo.png"
+        banner = f"{APP_PUBLIC_URL}/api/assets/banner.png"
         html = f"""
         <div style="font-family:-apple-system,Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0F172A;">
-          <div style="text-align:center;margin-bottom:24px;">
-            <img src="{logo}" alt="WeClips" width="72" height="72" style="border-radius:16px;display:inline-block;" />
+          <div style="margin-bottom:24px;">
+            <img src="{banner}" alt="WeClips — Ad-free, Christian, and calm" width="560" style="width:100%;max-width:560px;height:auto;display:block;margin:0 auto;border-radius:12px;" />
           </div>
           <h1 style="font-size:24px;margin:0 0 12px;">Your free trial ends tomorrow, {first_name}</h1>
           <p style="color:#334155;line-height:1.6;font-size:16px;margin:0 0 20px;">
@@ -1278,11 +1278,11 @@ def _send_subscription_active_email(to_email: str, first_name: str, price: str) 
         from sendgrid import SendGridAPIClient
         from sendgrid.helpers.mail import Mail
 
-        logo = f"{APP_PUBLIC_URL}/api/assets/logo.png"
+        banner = f"{APP_PUBLIC_URL}/api/assets/banner.png"
         html = f"""
         <div style="font-family:-apple-system,Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0F172A;">
-          <div style="text-align:center;margin-bottom:24px;">
-            <img src="{logo}" alt="WeClips" width="72" height="72" style="border-radius:16px;display:inline-block;" />
+          <div style="margin-bottom:24px;">
+            <img src="{banner}" alt="WeClips — Ad-free, Christian, and calm" width="560" style="width:100%;max-width:560px;height:auto;display:block;margin:0 auto;border-radius:12px;" />
           </div>
           <h1 style="font-size:24px;margin:0 0 12px;">You're a WeClips member, {first_name} 🎉</h1>
           <p style="color:#334155;line-height:1.6;font-size:16px;margin:0 0 20px;">
@@ -4270,6 +4270,17 @@ async def legal_delete_account_short():
 async def brand_logo():
     """Public, email-safe WeClips logo (stable HTTPS URL for SendGrid templates)."""
     path = os.path.join(os.path.dirname(__file__), "assets", "logo.png")
+    return FileResponse(
+        path,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@app.get("/api/assets/banner.png", include_in_schema=False)
+async def brand_banner():
+    """Public, email-safe WeClips brand banner (triangle + wordmark + tagline)."""
+    path = os.path.join(os.path.dirname(__file__), "assets", "banner.png")
     return FileResponse(
         path,
         media_type="image/png",
