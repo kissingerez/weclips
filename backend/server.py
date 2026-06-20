@@ -45,6 +45,9 @@ RC_REST_API_KEY = os.environ.get("REVENUECAT_REST_API_KEY", "")
 RC_ENTITLEMENT = os.environ.get("REVENUECAT_ENTITLEMENT_ID", "premium")
 APP_PUBLIC_URL = os.environ.get("APP_PUBLIC_URL", "https://weclips.app")
 SUBSCRIPTION_PRICE_LABEL = os.environ.get("SUBSCRIPTION_PRICE_LABEL", "$0.99")
+# Lifecycle emails (welcome / trial reminder / membership) send from this sender
+# so the welcome@ Gravatar shows. Domain weclips.app is authenticated in SendGrid.
+LIFECYCLE_SENDER_EMAIL = os.environ.get("LIFECYCLE_SENDER_EMAIL", "welcome@weclips.app")
 SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
 SENDGRID_SENDER_EMAIL = os.environ.get("SENDGRID_SENDER_EMAIL", "")
 PASSWORD_RESET_TTL_MIN = int(os.environ.get("PASSWORD_RESET_TTL_MIN", "15"))
@@ -1116,7 +1119,7 @@ def _send_welcome_email(to_email: str, first_name: str, charge_date: str) -> boo
         </div>
         """
         msg = Mail(
-            from_email=SENDGRID_SENDER_EMAIL,
+            from_email=LIFECYCLE_SENDER_EMAIL,
             to_emails=to_email,
             subject="Welcome to WeClips — your 7-day free trial is live",
             html_content=html,
@@ -1192,7 +1195,7 @@ def _send_trial_ending_email(to_email: str, first_name: str, charge_date: str, p
         </div>
         """
         msg = Mail(
-            from_email=SENDGRID_SENDER_EMAIL,
+            from_email=LIFECYCLE_SENDER_EMAIL,
             to_emails=to_email,
             subject="Your WeClips free trial ends tomorrow",
             html_content=html,
@@ -1303,7 +1306,7 @@ def _send_subscription_active_email(to_email: str, first_name: str, price: str) 
         </div>
         """
         msg = Mail(
-            from_email=SENDGRID_SENDER_EMAIL,
+            from_email=LIFECYCLE_SENDER_EMAIL,
             to_emails=to_email,
             subject="You're a WeClips member 🎉",
             html_content=html,

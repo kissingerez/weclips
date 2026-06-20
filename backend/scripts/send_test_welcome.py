@@ -10,6 +10,7 @@ LOGO = "https://weclips-preview.preview.emergentagent.com/api/assets/logo.png"
 PRICE = os.environ.get("SUBSCRIPTION_PRICE_LABEL", "$0.99")
 APP_URL = os.environ.get("APP_PUBLIC_URL", "https://weclips.app")
 SUPPORT = os.environ.get("SENDGRID_SENDER_EMAIL", "support@weclips.app")
+SENDER = os.environ.get("LIFECYCLE_SENDER_EMAIL", "welcome@weclips.app")
 API_KEY = os.environ["SENDGRID_API_KEY"]
 
 exp = datetime.now(timezone.utc) + timedelta(days=7)
@@ -50,7 +51,7 @@ from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 
 msg = Mail(
-    from_email=SUPPORT,
+    from_email=SENDER,
     to_emails=TO,
     subject="Welcome to WeClips — your 7-day free trial is live",
     html_content=html,
