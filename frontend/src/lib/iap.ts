@@ -105,17 +105,13 @@ export async function rcRestore(): Promise<boolean | null> {
 /**
  * Open the OS-native "Manage subscriptions" screen where the user can cancel.
  * Apps cannot cancel store subscriptions directly — they must deep-link here.
+ *
+ * We deep-link straight to the store URL rather than RevenueCat's
+ * showManageSubscriptions(): that native sheet can spin indefinitely when there
+ * is no real StoreKit subscription to load (e.g. review/demo or backend-granted
+ * access), which caused an App Store rejection. The URL is reliable on iPhone/iPad.
  */
 export async function manageSubscriptions(): Promise<void> {
-  const Purchases = loadPurchases();
-  if (Purchases?.showManageSubscriptions) {
-    try {
-      await Purchases.showManageSubscriptions();
-      return;
-    } catch {
-      // fall through to store URL
-    }
-  }
   const url =
     Platform.OS === "android"
       ? "https://play.google.com/store/account/subscriptions"
