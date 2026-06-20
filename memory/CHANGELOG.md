@@ -141,3 +141,8 @@ Verified: backend curl, babel parse, upload screen renders for logged-in user.
 - Trigger: RevenueCat webhook RENEWAL/PRODUCT_CHANGE -> only fires when trial_ends_at was set (i.e., the first charge converting a trial). Direct (no-trial) purchases and repeat monthly renewals send nothing. trial_ends_at now cleared HERE (removed from inline webhook update) so the conversion claim is the single source of truth.
 - Verified live: RENEWAL #1 after trial -> membership email accepted (202) + trial_ends_at cleared; RENEWAL #2 -> no resend (count=1).
 - Lifecycle emails now complete: welcome (trial start) -> day-6 reminder -> membership thank-you (conversion). All idempotent & trial-scoped.
+
+## 2026-02 — Fix: correct WeClips logo in emails + welcome@ sender
+- backend/assets/logo.png was mistakenly the default Emergent app icon. Replaced with the real WeClips "W" logo (baby blue #89CFF0) pulled from the welcome@weclips.app Gravatar. Served at /api/assets/logo.png.
+- Lifecycle emails (welcome/trial/membership) now send from welcome@weclips.app (LIFECYCLE_SENDER_EMAIL) to match the Gravatar sender the user set up; domain weclips.app is SendGrid-authenticated. OTP/reset stay on support@weclips.app.
+- Note: sender avatar (Gravatar) display is recipient-mail-client dependent (BIMI is the only reliable control) — not fixable from email HTML.
