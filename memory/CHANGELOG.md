@@ -10,6 +10,7 @@ Implemented (app/paywall.tsx):
 - New `offersLoading` / `offersUnavailable` state: Subscribe button shows a spinner while plans load (disabled), so reviewers never see the scary error.
 - `subscribe()` lazy-reloads offerings on tap if `pkg` is still null; only if it truly can't load does it show a soft "Subscriptions are temporarily unavailable. Please try again in a moment." + a "Tap to retry loading plans" action — no more "Store not ready" dead-end.
 - Terms of Use + Privacy Policy links remain on the paywall (functional, route to in-app /legal screens).
+- Currency-free paywall: removed all hardcoded price text (headline now "Become a member", button now just "Subscribe", trial badge "7-day free trial included", legal copy says "auto-renewing subscription" with no amount). Reason: the previous hardcoded "$0.99" fallback showed a single US price to all 175 storefronts (an Apple 3.1.2 problem). The actual localized price + billing terms are shown on Apple's system purchase sheet. A single review screenshot now works for all countries.
 - Reset founder account (kissingerez@gmail.com) subscription in DB for fresh purchase testing (was already is_subscribed=false).
 
 ⚠️ NATIVE-ONLY: the IAP/offerings behaviour cannot be validated in Expo Go or web preview — requires a new TestFlight/production build to confirm.

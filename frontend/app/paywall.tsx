@@ -18,7 +18,6 @@ export default function Paywall() {
   const { refresh } = useAuth();
   const iapOk = useMemo(() => isIapAvailable(), []);
 
-  const [priceLabel, setPriceLabel] = useState<string>("$0.99 / month");
   const [pkg, setPkg] = useState<any | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -80,7 +79,6 @@ export default function Paywall() {
 
     if (monthly) {
       setPkg(monthly);
-      setPriceLabel(monthly.product?.priceString || "$0.99 / month");
 
       // A configured free trial shows up as an intro offer with price 0.
       const intro = monthly.product?.introPrice;
@@ -207,17 +205,14 @@ export default function Paywall() {
         <View style={styles.content}>
           <Text style={styles.kicker}>WECLIPS MEMBERSHIP</Text>
           <Text style={styles.headline} testID="paywall-headline">
-            {priceLabel.split("/")[0].trim()}
-            <Text style={styles.headlineSmall}>
-              {priceLabel.includes("/") ? " /" + priceLabel.split("/").slice(1).join("/") : " /month"}
-            </Text>
+            Become a member
           </Text>
 
           {showTrial ? (
             <View style={styles.trialBadge} testID="paywall-trial-badge">
               <Ionicons name="gift-outline" size={16} color={colors.brand} />
               <Text style={styles.trialBadgeText}>
-                {trialLabel} free trial, then {priceLabel}
+                {trialLabel} free trial included
               </Text>
             </View>
           ) : null}
@@ -273,7 +268,7 @@ export default function Paywall() {
                   <ActivityIndicator color={colors.onBrand} />
                 ) : (
                   <Text style={styles.primaryText}>
-                    {showTrial ? `Start ${trialLabel} free trial` : `Subscribe · ${priceLabel}`}
+                    {showTrial ? `Start ${trialLabel} free trial` : "Subscribe"}
                   </Text>
                 )}
               </Pressable>
@@ -297,7 +292,7 @@ export default function Paywall() {
 
           <Text style={styles.legal}>
             {showTrial
-              ? `Free for ${trialLabel}, then ${priceLabel}. Auto-renews — cancel anytime in your store account before the trial ends.`
+              ? `Free for ${trialLabel}, then a recurring auto-renewing subscription. Cancel anytime in your store account before the trial ends.`
               : "Auto-renews. Cancel anytime in your store account."}
           </Text>
           <View style={styles.legalLinks}>
