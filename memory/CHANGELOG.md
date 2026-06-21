@@ -1,5 +1,21 @@
 # WeClips Changelog
 
+## 2026-06-21 — Fix Apple 2.1(b) "Store not ready" on Subscribe + 3.1.2(c) legal links
+User ask: Apple rejected v1.0.7 (120) — tapping Subscribe on iPad Air / iPhone showed "Store not ready — please try again in a moment." (Guideline 2.1(b)), and they want a functional Privacy Policy link (3.1.2(c)).
+
+Root cause: paywall set `pkg` only on a single `getOfferings()` call with no retry; if StoreKit/offerings hadn't loaded (or RevenueCat "current" offering wasn't set), `pkg` stayed null and tapping Subscribe dead-ended with "Store not ready".
+
+Implemented (app/paywall.tsx):
+- `loadOfferings()` now retries `getOfferings()` 4× with 1.5s→4.5s backoff and falls back across `current.monthly` → `current.availablePackages` → ANY offering in `offerings.all` → first package (handles a missing "current" offering in the RC dashboard).
+- New `offersLoading` / `offersUnavailable` state: Subscribe button shows a spinner while plans load (disabled), so reviewers never see the scary error.
+- `subscribe()` lazy-reloads offerings on tap if `pkg` is still null; only if it truly can't load does it show a soft "Subscriptions are temporarily unavailable. Please try again in a moment." + a "Tap to retry loading plans" action — no more "Store not ready" dead-end.
+- Terms of Use + Privacy Policy links remain on the paywall (functional, route to in-app /legal screens).
+- Reset founder account (kissingerez@gmail.com) subscription in DB for fresh purchase testing (was already is_subscribed=false).
+
+⚠️ NATIVE-ONLY: the IAP/offerings behaviour cannot be validated in Expo Go or web preview — requires a new TestFlight/production build to confirm.
+⚠️ STORE-SIDE ACTIONS REQUIRED (root cause is usually here): (1) Paid Apps Agreement must be "in effect" in App Store Connect → Agreements, Tax & Banking; (2) the subscription product must be "Cleared for Sale" and attached to the subscription group; (3) set the offering as "current/default" in RevenueCat; (4) set Privacy Policy URL (https://weclips.app/api/legal/privacy) + EULA in App Store Connect metadata for 3.1.2(c).
+
+
 ## 2026-02 — Eager upload (progress on select) + publish loading bar
 User ask: picking a video should START the upload immediately with a progress bar; Publish should have its own separate loading bar.
 

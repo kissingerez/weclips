@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -27,48 +27,89 @@ export default function Paywall() {
   // Connect / Google Play). `trialLabel` is e.g. "7-day"; empty when no trial.
   const [trialLabel, setTrialLabel] = useState<string>("");
   const [trialEligible, setTrialEligible] = useState<boolean>(true);
+  // Tracks whether the store products are still loading so the Subscribe button
+  // never dead-ends with a "Store not ready" error (App Store Guideline 2.1(b)).
+  const [offersLoading, setOffersLoading] = useState<boolean>(iapOk);
+  const [offersUnavailable, setOffersUnavailable] = useState<boolean>(false);
 
-  useEffect(() => {
-    if (!iapOk) return;
+  /**
+   * Loads the monthly package from RevenueCat with retries + backoff. Falls back
+   * across the current offering, any offering, and the first available package so
+   * a missing "current" offering in the RC dashboard doesn't break the paywall.
+   * Returns the package (or null) and also stores it in state for the UI.
+   */
+  const loadOfferings = useCallback(async (): Promise<any | null> => {
+    if (!iapOk) {
+      setOffersLoading(false);
+      return null;
+    }
     const Purchases = loadPurchases();
-    if (!Purchases) return;
-    (async () => {
+    if (!Purchases) {
+      setOffersLoading(false);
+      return null;
+    }
+    setOffersLoading(true);
+    setOffersUnavailable(false);
+
+    const pickMonthly = (offerings: any): any | null => {
+      const current = offerings?.current;
+      const allPkgs: any[] = Object.values(offerings?.all ?? {}).flatMap(
+        (o: any) => o?.availablePackages ?? []
+      );
+      return (
+        current?.monthly ||
+        current?.availablePackages?.find((p: any) => p.identifier === RC_MONTHLY_PKG_ID) ||
+        current?.availablePackages?.[0] ||
+        allPkgs.find((p: any) => p?.identifier === RC_MONTHLY_PKG_ID) ||
+        allPkgs[0] ||
+        null
+      );
+    };
+
+    let monthly: any | null = null;
+    for (let i = 0; i < 4; i++) {
       try {
         const offerings = await Purchases.getOfferings();
-        const current = offerings?.current;
-        const monthly =
-          current?.monthly ||
-          current?.availablePackages?.find((p: any) => p.identifier === RC_MONTHLY_PKG_ID) ||
-          current?.availablePackages?.[0];
-        if (!monthly) return;
-        setPkg(monthly);
-        setPriceLabel(monthly.product?.priceString || "$0.99 / month");
-
-        // A configured free trial shows up as an intro offer with price 0.
-        const intro = monthly.product?.introPrice;
-        if (intro && intro.price === 0 && intro.periodNumberOfUnits > 0) {
-          const unit = String(intro.periodUnit || "day").toLowerCase();
-          setTrialLabel(`${intro.periodNumberOfUnits}-${unit}`);
-
-          // iOS exposes a precise eligibility check; default to showing the trial
-          // elsewhere (Apple/Google's purchase sheet is the final source of truth).
-          try {
-            if (Platform.OS === "ios" && Purchases.checkTrialOrIntroductoryPriceEligibility) {
-              const id = monthly.product?.identifier;
-              const map = await Purchases.checkTrialOrIntroductoryPriceEligibility([id]);
-              const status = map?.[id]?.status;
-              // 1 === INELIGIBLE; treat anything else (eligible/unknown) as eligible.
-              setTrialEligible(status !== 1);
-            }
-          } catch {
-            setTrialEligible(true);
-          }
-        }
+        monthly = pickMonthly(offerings);
+        if (monthly) break;
       } catch (e: any) {
         console.warn("getOfferings failed", e?.message);
       }
-    })();
+      if (i < 3) await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
+    }
+
+    if (monthly) {
+      setPkg(monthly);
+      setPriceLabel(monthly.product?.priceString || "$0.99 / month");
+
+      // A configured free trial shows up as an intro offer with price 0.
+      const intro = monthly.product?.introPrice;
+      if (intro && intro.price === 0 && intro.periodNumberOfUnits > 0) {
+        const unit = String(intro.periodUnit || "day").toLowerCase();
+        setTrialLabel(`${intro.periodNumberOfUnits}-${unit}`);
+        try {
+          if (Platform.OS === "ios" && Purchases.checkTrialOrIntroductoryPriceEligibility) {
+            const id = monthly.product?.identifier;
+            const map = await Purchases.checkTrialOrIntroductoryPriceEligibility([id]);
+            const status = map?.[id]?.status;
+            // 1 === INELIGIBLE; treat anything else (eligible/unknown) as eligible.
+            setTrialEligible(status !== 1);
+          }
+        } catch {
+          setTrialEligible(true);
+        }
+      }
+      setOffersUnavailable(false);
+    } else {
+      setOffersUnavailable(true);
+    }
+    setOffersLoading(false);
+    return monthly;
   }, [iapOk]);
+
+  useEffect(() => {
+    void loadOfferings();
+  }, [loadOfferings]);
 
   const showTrial = !!trialLabel && trialEligible;
 
@@ -80,13 +121,23 @@ export default function Paywall() {
       return;
     }
     const Purchases = loadPurchases();
-    if (!Purchases || !pkg) {
-      setErr("Store not ready — please try again in a moment.");
+    if (!Purchases) {
+      setErr("Open WeClips on your phone to subscribe.");
+      return;
+    }
+    // If offerings weren't ready yet (e.g. slow StoreKit init during review),
+    // try to (re)load them now instead of dead-ending with a "Store not ready".
+    let purchasePkg = pkg;
+    if (!purchasePkg) {
+      purchasePkg = await loadOfferings();
+    }
+    if (!purchasePkg) {
+      setErr("Subscriptions are temporarily unavailable. Please try again in a moment.");
       return;
     }
     setLoading(true);
     try {
-      const { customerInfo } = await Purchases.purchasePackage(pkg);
+      const { customerInfo } = await Purchases.purchasePackage(purchasePkg);
       const active = !!customerInfo?.entitlements?.active?.[RC_ENTITLEMENT];
       if (active) {
         try {
@@ -212,10 +263,13 @@ export default function Paywall() {
               <Pressable
                 testID="paywall-subscribe-button"
                 onPress={subscribe}
-                disabled={loading}
-                style={({ pressed }) => [styles.primary, (pressed || loading) && { opacity: 0.85 }]}
+                disabled={loading || offersLoading}
+                style={({ pressed }) => [
+                  styles.primary,
+                  (pressed || loading || offersLoading) && { opacity: 0.85 },
+                ]}
               >
-                {loading ? (
+                {loading || offersLoading ? (
                   <ActivityIndicator color={colors.onBrand} />
                 ) : (
                   <Text style={styles.primaryText}>
@@ -223,6 +277,17 @@ export default function Paywall() {
                   </Text>
                 )}
               </Pressable>
+
+              {offersUnavailable && !offersLoading ? (
+                <Pressable
+                  testID="paywall-retry-button"
+                  onPress={() => loadOfferings()}
+                  hitSlop={8}
+                  style={styles.restore}
+                >
+                  <Text style={styles.restoreText}>Tap to retry loading plans</Text>
+                </Pressable>
+              ) : null}
 
               <Pressable testID="paywall-restore-button" onPress={restore} hitSlop={8} style={styles.restore}>
                 <Text style={styles.restoreText}>Restore purchases</Text>
